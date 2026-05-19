@@ -6,17 +6,69 @@ class BrushMTKView: MTKView {
     var isDrawing = false
     var lastPoint: CGPoint?
     var lastTimestamp: TimeInterval?
+    var trackingArea: NSTrackingArea?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         return true
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = trackingArea {
+            removeTrackingArea(old)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.hide()
+        brushRenderer?.showCursor = true
+        setNeedsDisplay(bounds)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.unhide()
+        brushRenderer?.showCursor = false
+        setNeedsDisplay(bounds)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
+        setNeedsDisplay(bounds)
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags
+        let isCommand = flags.contains(.command)
+        guard isCommand, let chars = event.charactersIgnoringModifiers, chars == "z" else {
+            super.keyDown(with: event)
+            return
+        }
+        if flags.contains(.shift) {
+            brushRenderer?.redo()
+        } else {
+            brushRenderer?.undo()
+        }
+        setNeedsDisplay(bounds)
+    }
+
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         isDrawing = true
         let point = convert(event.locationInWindow, from: nil)
-        print("[EVENT] mouseDown at \(point), renderer=\(brushRenderer != nil)")
         lastPoint = point
         lastTimestamp = event.timestamp
+        brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
 
         let brushPoint = createBrushPoint(from: event, location: point)
         brushRenderer?.startStroke(with: brushPoint)
@@ -26,7 +78,7 @@ class BrushMTKView: MTKView {
     override func mouseDragged(with event: NSEvent) {
         guard isDrawing else { return }
         let point = convert(event.locationInWindow, from: nil)
-        print("[EVENT] mouseDragged at \(point)")
+        brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
 
         let brushPoint = createBrushPoint(from: event, location: point)
         brushRenderer?.continueStroke(with: brushPoint)
@@ -37,17 +89,16 @@ class BrushMTKView: MTKView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        print("[EVENT] mouseUp")
         isDrawing = false
         lastPoint = nil
         lastTimestamp = nil
         brushRenderer?.endStroke()
+        setNeedsDisplay(bounds)
     }
 
     override func pressureChange(with event: NSEvent) {
         guard isDrawing else { return }
         let point = convert(event.locationInWindow, from: nil)
-        print("[EVENT] pressureChange at \(point)")
         lastPoint = point
 
         let brushPoint = createBrushPoint(from: event, location: point)
@@ -77,10 +128,6 @@ class BrushMTKView: MTKView {
         let minSize = brushRenderer?.minBrushSize ?? 2.0
         let size = minSize + (baseSize - minSize) * clampedPressure
 
-        print(String(format: "[INPUT] rawP=%.3f clampP=%.3f size=%.2f vel=%.2f pos=%.1f,%.1f",
-                     rawPressure, clampedPressure, size, velocity,
-                     normalizedPos.x, normalizedPos.y))
-
         return BrushPoint(
             position: normalizedPos,
             pressure: clampedPressure,
@@ -105,6 +152,7 @@ struct MetalBrushView: NSViewRepresentable {
         mtkView.colorPixelFormat = .bgra8Unorm
         mtkView.preferredFramesPerSecond = 60
         mtkView.enableSetNeedsDisplay = true
+        mtkView.isPaused = true
         mtkView.brushRenderer = renderer
 
         let coordinator = context.coordinator
@@ -120,6 +168,7 @@ struct MetalBrushView: NSViewRepresentable {
         }
         context.coordinator.renderer = renderer
         context.coordinator.mtkView = nsView
+        nsView.setNeedsDisplay(nsView.bounds)
     }
 
     func makeCoordinator() -> Coordinator {

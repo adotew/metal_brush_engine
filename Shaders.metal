@@ -144,3 +144,79 @@ fragment float4 displayFragment(
 ) {
     return canvasTexture.sample(canvasSampler, in.texCoord);
 }
+
+// MARK: - Cursor Overlay Shader
+
+struct CursorVertexOut {
+    float4 position [[position]];
+    float2 localPos;
+    float2 ndcPos;
+};
+
+struct CursorUniforms {
+    float2 center;   // in NDC
+    float2 radius;   // in NDC
+    float show;
+    float padding;
+};
+
+vertex CursorVertexOut cursorVertex(
+    QuadVertex in [[stage_in]],
+    constant CursorUniforms &cursor [[buffer(1)]]
+) {
+    CursorVertexOut out;
+    // Scale the [-1,1] quad by radius and translate to center (both NDC)
+    float2 ndc = cursor.center + in.position * cursor.radius;
+    out.position = float4(ndc, 0.0, 1.0);
+    out.localPos = in.position; // [-1,1] across the quad, 0 at center
+    out.ndcPos = ndc;           // NDC position for correct UV mapping
+    return out;
+}
+
+fragment float4 cursorFragment(
+    CursorVertexOut in [[stage_in]],
+    constant CursorUniforms &cursor [[buffer(1)]],
+    texture2d<float> canvasTexture [[texture(0)]],
+    sampler canvasSampler [[sampler(0)]]
+) {
+    if (cursor.show < 0.5) { discard_fragment(); }
+
+    // localPos ranges from -1 to 1 across the quad
+    float dist = length(in.localPos);
+
+    // Convert pixel thickness to NDC thickness
+    float minRadiusNDC = min(cursor.radius.x, cursor.radius.y);
+    float pixelThickness = 2.0; // 2px outer ring
+    float ndcThickness = pixelThickness / max(minRadiusNDC * 1000.0, 1.0);
+    ndcThickness = max(ndcThickness, 0.015);
+
+    // ---- Outer black ring ----
+    float outerRingDist = abs(dist - 1.0);
+    float outerAlpha = 1.0 - smoothstep(0.0, ndcThickness * 1.3, outerRingDist);
+
+    // ---- Inner white ring (slightly thinner, inset) ----
+    float innerRingDist = abs(dist - (1.0 - ndcThickness * 0.3));
+    float innerAlpha = 1.0 - smoothstep(0.0, ndcThickness * 0.6, innerRingDist);
+
+    // ---- Center dot ----
+    float dotDist = length(in.localPos);
+    float dotAlpha = 1.0 - smoothstep(0.0, ndcThickness * 0.8, dotDist);
+
+    // Combine: black outer, white inner, white dot
+    float3 color = float3(0.0, 0.0, 0.0); // black
+    float alpha = outerAlpha;
+
+    if (innerAlpha > 0.01) {
+        color = float3(1.0, 1.0, 1.0); // white
+        alpha = max(alpha, innerAlpha);
+    }
+
+    if (dotAlpha > 0.01) {
+        color = float3(1.0, 1.0, 1.0); // white center dot
+        alpha = max(alpha, dotAlpha);
+    }
+
+    if (alpha < 0.01) { discard_fragment(); }
+
+    return float4(color, alpha);
+}

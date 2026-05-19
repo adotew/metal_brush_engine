@@ -46,12 +46,20 @@ struct DabInstance {
     var _pad: Float = 0
 }
 
+struct CursorUniforms {
+    var center: SIMD2<Float>
+    var radius: SIMD2<Float>
+    var show: Float
+    var padding: Float = 0
+}
+
 class BrushRenderer: NSObject, ObservableObject {
     // MARK: - Metal Resources
     var device: MTLDevice!
     var commandQueue: MTLCommandQueue!
     var brushPipelineState: MTLRenderPipelineState!
     var displayPipelineState: MTLRenderPipelineState!
+    var cursorPipelineState: MTLRenderPipelineState!
     var quadVertexBuffer: MTLBuffer!
     var instanceBuffer: MTLBuffer!
     var canvasTexture: MTLTexture!
@@ -83,6 +91,18 @@ class BrushRenderer: NSObject, ObservableObject {
     @Published var rotationJitter: Float = 0.0
     @Published var smoothing: Float = 0.3
 
+    // MARK: - Cursor (not @Published — no SwiftUI view reads these)
+    var cursorPosition: SIMD2<Float> = .zero
+    var showCursor: Bool = false
+
+    // MARK: - Undo / Redo (ring buffer)
+    var undoTextures: [MTLTexture] = []
+    var undoStart = 0
+    var undoEnd = 0
+    var redoEnd = 0
+    let maxUndoLevels = 20
+    var needsSnapshotSave = false
+
     // MARK: - Internal
     var currentTime: Float = 0
 
@@ -100,8 +120,10 @@ class BrushRenderer: NSObject, ObservableObject {
         self.commandQueue = device.makeCommandQueue()
 
         createCanvasTextures()
+        setupUndoTextures()
         setupBrushPipeline()
         setupDisplayPipeline()
+        setupCursorPipeline()
         setupQuadBuffer()
         setupInstanceBuffer()
         generateBrushTextures()
@@ -120,7 +142,25 @@ class BrushRenderer: NSObject, ObservableObject {
 
         canvasTexture = device.makeTexture(descriptor: descriptor)
         canvasBackupTexture = device.makeTexture(descriptor: descriptor)
-        clearCanvas()
+        clearCanvas(skipSnapshot: true)
+        saveSnapshot() // Save initial empty canvas as state 0
+    }
+
+    func setupUndoTextures() {
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: Int(canvasSize.width),
+            height: Int(canvasSize.height),
+            mipmapped: false
+        )
+        descriptor.usage = .shaderRead
+        descriptor.storageMode = .private
+
+        for _ in 0..<maxUndoLevels {
+            if let tex = device.makeTexture(descriptor: descriptor) {
+                undoTextures.append(tex)
+            }
+        }
     }
 
     func setupBrushPipeline() {
@@ -185,6 +225,42 @@ class BrushRenderer: NSObject, ObservableObject {
             displayPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
         } catch {
             fatalError("Failed to create display pipeline: \(error)")
+        }
+    }
+
+    func setupCursorPipeline() {
+        let library = device.makeDefaultLibrary()
+        let vertexFunction = library?.makeFunction(name: "cursorVertex")
+        let fragmentFunction = library?.makeFunction(name: "cursorFragment")
+
+        let vertexDescriptor = MTLVertexDescriptor()
+        vertexDescriptor.attributes[0].format = .float2
+        vertexDescriptor.attributes[0].offset = 0
+        vertexDescriptor.attributes[0].bufferIndex = 0
+        vertexDescriptor.attributes[1].format = .float2
+        vertexDescriptor.attributes[1].offset = MemoryLayout<SIMD2<Float>>.stride
+        vertexDescriptor.attributes[1].bufferIndex = 0
+        vertexDescriptor.layouts[0].stride = MemoryLayout<SIMD2<Float>>.stride * 2
+        vertexDescriptor.layouts[0].stepFunction = .perVertex
+
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+        pipelineDescriptor.vertexFunction = vertexFunction
+        pipelineDescriptor.fragmentFunction = fragmentFunction
+        pipelineDescriptor.vertexDescriptor = vertexDescriptor
+        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+
+        pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+
+        do {
+            cursorPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+        } catch {
+            fatalError("Failed to create cursor pipeline: \(error)")
         }
     }
 
@@ -376,8 +452,103 @@ class BrushRenderer: NSObject, ObservableObject {
         return Float(h & 0x7fffffff) / Float(0x7fffffff)
     }
 
+    // MARK: - Snapshot / Undo / Redo (ring buffer)
+
+    private func blitCanvas(to destination: MTLTexture) {
+        guard let canvas = canvasTexture else { return }
+        let commandBuffer = commandQueue.makeCommandBuffer()!
+        let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+        blitEncoder.copy(
+            from: canvas,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: canvas.width, height: canvas.height, depth: 1),
+            to: destination,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+    }
+
+    private func restore(from source: MTLTexture) {
+        guard let canvas = canvasTexture else { return }
+        let commandBuffer = commandQueue.makeCommandBuffer()!
+        let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+        blitEncoder.copy(
+            from: source,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: source.width, height: source.height, depth: 1),
+            to: canvas,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+    }
+
+    private func pushSnapshotState() {
+        redoEnd = undoEnd
+        undoEnd += 1
+        if undoEnd - undoStart > undoTextures.count {
+            undoStart += 1
+        }
+    }
+
+    func saveSnapshot() {
+        guard !undoTextures.isEmpty else { return }
+        let index = undoEnd % undoTextures.count
+        blitCanvas(to: undoTextures[index])
+        pushSnapshotState()
+    }
+
+    func saveSnapshot(to commandBuffer: MTLCommandBuffer) {
+        guard !undoTextures.isEmpty else { return }
+        let index = undoEnd % undoTextures.count
+        let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+        blitEncoder.copy(
+            from: canvasTexture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: canvasTexture.width, height: canvasTexture.height, depth: 1),
+            to: undoTextures[index],
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        pushSnapshotState()
+    }
+
+    func undo() {
+        guard lastPlacedPoint == nil else { return }
+        guard undoEnd > undoStart + 1 else { return }
+        undoEnd -= 1
+        let index = (undoEnd - 1) % undoTextures.count
+        restore(from: undoTextures[index])
+        objectWillChange.send()
+    }
+
+    func redo() {
+        guard lastPlacedPoint == nil else { return }
+        guard undoEnd < redoEnd else { return }
+        let index = undoEnd % undoTextures.count
+        restore(from: undoTextures[index])
+        undoEnd += 1
+        objectWillChange.send()
+    }
+
+    var canUndo: Bool { undoEnd > undoStart + 1 && lastPlacedPoint == nil }
+    var canRedo: Bool { undoEnd < redoEnd && lastPlacedPoint == nil }
+
     // MARK: - Canvas Operations
-    func clearCanvas() {
+    func clearCanvas(skipSnapshot: Bool = false) {
         guard let canvasTexture = canvasTexture else { return }
 
         let commandBuffer = commandQueue.makeCommandBuffer()
@@ -395,12 +566,14 @@ class BrushRenderer: NSObject, ObservableObject {
         lastPlacedPoint = nil
         lastSmoothedPoint = nil
         hasPlacedDabs = false
+
+        if !skipSnapshot {
+            saveSnapshot() // Save the now-empty canvas
+        }
     }
 
     // MARK: - Stroke Lifecycle
     func startStroke(with point: BrushPoint) {
-        print(String(format: "[STROKE] startStroke pos=%.1f,%.1f size=%.2f pressure=%.3f",
-                     point.position.x, point.position.y, point.size, point.pressure))
         lastSmoothedPoint = point
         lastPlacedPoint = point
         hasPlacedDabs = false
@@ -411,12 +584,7 @@ class BrushRenderer: NSObject, ObservableObject {
     }
 
     func continueStroke(with point: BrushPoint) {
-        print(String(format: "[STROKE] continueStroke raw pos=%.1f,%.1f size=%.2f",
-                     point.position.x, point.position.y, point.size))
-        guard let lastSmoothed = lastSmoothedPoint else {
-            print("[STROKE] continueStroke: lastSmoothedPoint is nil, skipping")
-            return
-        }
+        guard let lastSmoothed = lastSmoothedPoint else { return }
 
         // Smooth the input
         let smoothingFactor = smoothing
@@ -444,9 +612,6 @@ class BrushRenderer: NSObject, ObservableObject {
             rotation: rotation
         )
 
-        print(String(format: "[STROKE] smoothed pos=%.1f,%.1f size=%.2f vel=%.2f",
-                     smoothedPoint.position.x, smoothedPoint.position.y, smoothedPoint.size, smoothedPoint.velocity))
-
         // Interpolate dabs between last placed and smoothed
         interpolateDabs(from: lastPlacedPoint!, to: smoothedPoint)
 
@@ -460,6 +625,7 @@ class BrushRenderer: NSObject, ObservableObject {
         lastPlacedPoint = nil
         lastSmoothedPoint = nil
         hasPlacedDabs = false
+        needsSnapshotSave = true
     }
 
     // MARK: - Dab Placement
@@ -468,16 +634,9 @@ class BrushRenderer: NSObject, ObservableObject {
         let avgSize = (start.size + end.size) / 2.0
         let stepSize = max(1.0, avgSize * spacing)
 
-        print(String(format: "[INTERP] dist=%.3f avgSize=%.2f stepSize=%.2f spacing=%.2f",
-                     distance, avgSize, stepSize, spacing))
-
-        guard distance > 0.1 else {
-            print("[INTERP] distance <= 0.1, skipping interpolation")
-            return
-        }
+        guard distance > 0.1 else { return }
 
         let numSteps = max(1, Int(floor(distance / stepSize)))
-        print("[INTERP] numSteps=\(numSteps)")
 
         for i in 1...numSteps {
             let t = Float(i) / Float(numSteps)
@@ -526,9 +685,7 @@ class BrushRenderer: NSObject, ObservableObject {
         // For flat and textured brushes, add some organic variation based on velocity
         var size = point.size
         if brushType == .flat || brushType == .textured {
-            let oldSize = size
             size *= 1.0 - min(point.velocity * 0.001, 0.3)
-            print(String(format: "[DAB] vel-size: %.2f -> %.2f (vel=%.2f)", oldSize, size, point.velocity))
         }
 
         // Determine smudge strength
@@ -536,9 +693,6 @@ class BrushRenderer: NSObject, ObservableObject {
         if brushType == .smudge {
             smudge = smudgeStrength
         }
-
-        print(String(format: "[DAB] #%d pos=%.1f,%.1f size=%.2f pressure=%.3f rot=%.3f",
-                     newDabs.count + 1, position.x, position.y, size, point.pressure, rotation))
 
         let dab = DabInstance(
             center: position,
@@ -559,15 +713,8 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Rendering
     func render(to view: MTKView) {
-        print("[RENDER] render called, drawable=\(view.currentDrawable != nil), canvas=\(canvasTexture != nil), newDabs=\(newDabs.count)")
-        guard let drawable = view.currentDrawable else {
-            print("[RENDER] no drawable, returning")
-            return
-        }
-        guard let canvasTexture = canvasTexture else {
-            print("[RENDER] no canvas texture, returning")
-            return
-        }
+        guard let drawable = view.currentDrawable else { return }
+        guard let canvasTexture = canvasTexture else { return }
 
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
@@ -599,7 +746,6 @@ class BrushRenderer: NSObject, ObservableObject {
         if !newDabs.isEmpty {
             uploadInstances()
             let instanceCount = min(newDabs.count, maxDabs)
-            print("[RENDER] drawing \(instanceCount) dabs")
 
             let canvasPass = MTLRenderPassDescriptor()
             canvasPass.colorAttachments[0].texture = canvasTexture
@@ -625,11 +771,18 @@ class BrushRenderer: NSObject, ObservableObject {
             renderEncoder.endEncoding()
 
             newDabs.removeAll()
-        } else {
-            print("[RENDER] no new dabs to draw")
+        }
+
+        // Save post-stroke state (after dabs are rendered to canvas)
+        if needsSnapshotSave {
+            saveSnapshot(to: commandBuffer)
+            needsSnapshotSave = false
         }
 
         // Display canvas to view
+        let viewW = Float(view.bounds.width)
+        let viewH = Float(view.bounds.height)
+
         let displayPass = MTLRenderPassDescriptor()
         displayPass.colorAttachments[0].texture = drawable.texture
         displayPass.colorAttachments[0].loadAction = .clear
@@ -644,24 +797,48 @@ class BrushRenderer: NSObject, ObservableObject {
         displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         displayEncoder.endEncoding()
 
+        // Cursor overlay pass (small quad, only where cursor is visible)
+        let cursorVisible = showCursor
+        if cursorVisible {
+            let cursorPass = MTLRenderPassDescriptor()
+            cursorPass.colorAttachments[0].texture = drawable.texture
+            cursorPass.colorAttachments[0].loadAction = .load
+            cursorPass.colorAttachments[0].storeAction = .store
+
+            let cursorEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: cursorPass)!
+            cursorEncoder.setRenderPipelineState(cursorPipelineState)
+            cursorEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
+
+            // Pass center and radius in NDC [-1,1] space
+            let ndcCenterX = (cursorPosition.x / max(viewW, 1)) * 2 - 1
+            let ndcCenterY = (cursorPosition.y / max(viewH, 1)) * 2 - 1
+            let ndcRadiusX = maxBrushSize / Float(canvasSize.width) * 2
+            let ndcRadiusY = maxBrushSize / Float(canvasSize.height) * 2
+
+            var cursorUniforms = CursorUniforms(
+                center: SIMD2<Float>(ndcCenterX, ndcCenterY),
+                radius: SIMD2<Float>(ndcRadiusX, ndcRadiusY),
+                show: 1.0
+            )
+            cursorEncoder.setVertexBytes(&cursorUniforms, length: MemoryLayout<CursorUniforms>.stride, index: 1)
+            cursorEncoder.setFragmentBytes(&cursorUniforms, length: MemoryLayout<CursorUniforms>.stride, index: 1)
+            cursorEncoder.setFragmentTexture(canvasTexture, index: 0)
+            cursorEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
+            cursorEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+            cursorEncoder.endEncoding()
+        }
+
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
 
     func uploadInstances() {
-        guard let buffer = instanceBuffer else {
-            print("[UPLOAD] instanceBuffer is nil")
-            return
-        }
+        guard let buffer = instanceBuffer else { return }
         let count = min(newDabs.count, maxDabs)
         let byteCount = count * MemoryLayout<DabInstance>.stride
-        print("[UPLOAD] copying \(count) instances, \(byteCount) bytes")
 
         newDabs.withUnsafeBytes { rawBuffer in
-            guard let source = rawBuffer.baseAddress else {
-                print("[UPLOAD] rawBuffer.baseAddress is nil")
-                return
-            }
+            guard let source = rawBuffer.baseAddress else { return }
             memcpy(buffer.contents(), source, byteCount)
         }
     }
@@ -672,7 +849,6 @@ class BrushRenderer: NSObject, ObservableObject {
         let scaleY = Float(canvasSize.height) / Float(max(view.bounds.height, 1))
         let canvasX = Float(point.x) * scaleX
         let canvasY = Float(point.y) * scaleY
-        print("[NORM] viewBounds=\(view.bounds) canvas=\(canvasSize) scale=(\(scaleX), \(scaleY)) in=(\(point.x), \(point.y)) out=(\(canvasX), \(canvasY))")
         return SIMD2<Float>(canvasX, canvasY)
     }
 }

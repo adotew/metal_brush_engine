@@ -103,6 +103,18 @@ struct ContentView: View {
                         .frame(width: 60)
                 }
 
+                Button("Undo") {
+                    renderer.undo()
+                }
+                .disabled(!renderer.canUndo)
+                .keyboardShortcut("z", modifiers: .command)
+
+                Button("Redo") {
+                    renderer.redo()
+                }
+                .disabled(!renderer.canRedo)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+
                 Button("Clear") {
                     renderer.clearCanvas()
                 }
