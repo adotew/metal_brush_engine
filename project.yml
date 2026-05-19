@@ -1,0 +1,17 @@
+name: MetalBrushEngine
+targets:
+  MetalBrushEngine:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - BrushEngineApp.swift
+      - ContentView.swift
+      - MetalBrushView.swift
+      - BrushRenderer.swift
+      - Shaders.metal
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.metalbrushengine
+      SWIFT_VERSION: "5.9"
+      INFOPLIST_FILE: Info.plist
+      LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
