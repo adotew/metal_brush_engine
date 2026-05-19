@@ -14,6 +14,7 @@ class BrushMTKView: MTKView {
     override func mouseDown(with event: NSEvent) {
         isDrawing = true
         let point = convert(event.locationInWindow, from: nil)
+        print("[EVENT] mouseDown at \(point), renderer=\(brushRenderer != nil)")
         lastPoint = point
         lastTimestamp = event.timestamp
 
@@ -25,14 +26,18 @@ class BrushMTKView: MTKView {
     override func mouseDragged(with event: NSEvent) {
         guard isDrawing else { return }
         let point = convert(event.locationInWindow, from: nil)
-        lastPoint = point
+        print("[EVENT] mouseDragged at \(point)")
 
         let brushPoint = createBrushPoint(from: event, location: point)
         brushRenderer?.continueStroke(with: brushPoint)
+
+        lastPoint = point
+        lastTimestamp = event.timestamp
         setNeedsDisplay(bounds)
     }
 
     override func mouseUp(with event: NSEvent) {
+        print("[EVENT] mouseUp")
         isDrawing = false
         lastPoint = nil
         lastTimestamp = nil
@@ -42,6 +47,7 @@ class BrushMTKView: MTKView {
     override func pressureChange(with event: NSEvent) {
         guard isDrawing else { return }
         let point = convert(event.locationInWindow, from: nil)
+        print("[EVENT] pressureChange at \(point)")
         lastPoint = point
 
         let brushPoint = createBrushPoint(from: event, location: point)
@@ -50,32 +56,34 @@ class BrushMTKView: MTKView {
     }
 
     private func createBrushPoint(from event: NSEvent, location: CGPoint) -> BrushPoint {
-        var pressure = Float(event.pressure)
-        if pressure < 0.1 { pressure = 1.0 }
+        let rawPressure = Float(event.pressure)
+        let clampedPressure = max(rawPressure, 0.1)
 
         let tilt = event.tilt
 
         let timestamp = Float(event.timestamp)
         var velocity: Float = 0.0
-        if let lastT = lastTimestamp, lastT > 0 {
+        if let lastT = lastTimestamp, lastT > 0, let lastP = lastPoint {
             let dt = Float(event.timestamp - lastT)
-            if dt > 0, let lastP = lastPoint {
+            if dt > 0 {
                 let dx = Float(location.x - lastP.x)
                 let dy = Float(location.y - lastP.y)
                 velocity = sqrt(dx * dx + dy * dy) / dt
             }
-            lastTimestamp = event.timestamp
         }
 
         let normalizedPos = brushRenderer?.normalizePoint(location, in: self) ?? .zero
         let baseSize = brushRenderer?.maxBrushSize ?? 30.0
-        let size =
-            (brushRenderer?.minBrushSize ?? 2.0) + (baseSize - (brushRenderer?.minBrushSize ?? 2.0))
-            * pressure
+        let minSize = brushRenderer?.minBrushSize ?? 2.0
+        let size = minSize + (baseSize - minSize) * clampedPressure
+
+        print(String(format: "[INPUT] rawP=%.3f clampP=%.3f size=%.2f vel=%.2f pos=%.1f,%.1f",
+                     rawPressure, clampedPressure, size, velocity,
+                     normalizedPos.x, normalizedPos.y))
 
         return BrushPoint(
             position: normalizedPos,
-            pressure: pressure,
+            pressure: clampedPressure,
             size: size,
             tiltX: Float(tilt.x),
             tiltY: Float(tilt.y),

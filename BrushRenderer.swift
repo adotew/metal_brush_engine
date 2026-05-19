@@ -42,7 +42,7 @@ struct DabInstance {
     var softness: Float
     var smudgeStrength: Float
     var brushType: Int32
-    var color: SIMD3<Float>
+    var color: SIMD4<Float>
     var _pad: Float = 0
 }
 
@@ -399,6 +399,8 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Stroke Lifecycle
     func startStroke(with point: BrushPoint) {
+        print(String(format: "[STROKE] startStroke pos=%.1f,%.1f size=%.2f pressure=%.3f",
+                     point.position.x, point.position.y, point.size, point.pressure))
         lastSmoothedPoint = point
         lastPlacedPoint = point
         hasPlacedDabs = false
@@ -409,7 +411,12 @@ class BrushRenderer: NSObject, ObservableObject {
     }
 
     func continueStroke(with point: BrushPoint) {
-        guard let lastSmoothed = lastSmoothedPoint else { return }
+        print(String(format: "[STROKE] continueStroke raw pos=%.1f,%.1f size=%.2f",
+                     point.position.x, point.position.y, point.size))
+        guard let lastSmoothed = lastSmoothedPoint else {
+            print("[STROKE] continueStroke: lastSmoothedPoint is nil, skipping")
+            return
+        }
 
         // Smooth the input
         let smoothingFactor = smoothing
@@ -437,6 +444,9 @@ class BrushRenderer: NSObject, ObservableObject {
             rotation: rotation
         )
 
+        print(String(format: "[STROKE] smoothed pos=%.1f,%.1f size=%.2f vel=%.2f",
+                     smoothedPoint.position.x, smoothedPoint.position.y, smoothedPoint.size, smoothedPoint.velocity))
+
         // Interpolate dabs between last placed and smoothed
         interpolateDabs(from: lastPlacedPoint!, to: smoothedPoint)
 
@@ -458,9 +468,16 @@ class BrushRenderer: NSObject, ObservableObject {
         let avgSize = (start.size + end.size) / 2.0
         let stepSize = max(1.0, avgSize * spacing)
 
-        guard distance > 0.1 else { return }
+        print(String(format: "[INTERP] dist=%.3f avgSize=%.2f stepSize=%.2f spacing=%.2f",
+                     distance, avgSize, stepSize, spacing))
+
+        guard distance > 0.1 else {
+            print("[INTERP] distance <= 0.1, skipping interpolation")
+            return
+        }
 
         let numSteps = max(1, Int(floor(distance / stepSize)))
+        print("[INTERP] numSteps=\(numSteps)")
 
         for i in 1...numSteps {
             let t = Float(i) / Float(numSteps)
@@ -509,7 +526,9 @@ class BrushRenderer: NSObject, ObservableObject {
         // For flat and textured brushes, add some organic variation based on velocity
         var size = point.size
         if brushType == .flat || brushType == .textured {
+            let oldSize = size
             size *= 1.0 - min(point.velocity * 0.001, 0.3)
+            print(String(format: "[DAB] vel-size: %.2f -> %.2f (vel=%.2f)", oldSize, size, point.velocity))
         }
 
         // Determine smudge strength
@@ -517,6 +536,9 @@ class BrushRenderer: NSObject, ObservableObject {
         if brushType == .smudge {
             smudge = smudgeStrength
         }
+
+        print(String(format: "[DAB] #%d pos=%.1f,%.1f size=%.2f pressure=%.3f rot=%.3f",
+                     newDabs.count + 1, position.x, position.y, size, point.pressure, rotation))
 
         let dab = DabInstance(
             center: position,
@@ -527,7 +549,7 @@ class BrushRenderer: NSObject, ObservableObject {
             softness: softness,
             smudgeStrength: smudge,
             brushType: Int32(brushType.rawValue),
-            color: brushColor
+            color: SIMD4<Float>(brushColor, 1.0)
         )
 
         newDabs.append(dab)
@@ -537,8 +559,15 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Rendering
     func render(to view: MTKView) {
-        guard let drawable = view.currentDrawable else { return }
-        guard let canvasTexture = canvasTexture else { return }
+        print("[RENDER] render called, drawable=\(view.currentDrawable != nil), canvas=\(canvasTexture != nil), newDabs=\(newDabs.count)")
+        guard let drawable = view.currentDrawable else {
+            print("[RENDER] no drawable, returning")
+            return
+        }
+        guard let canvasTexture = canvasTexture else {
+            print("[RENDER] no canvas texture, returning")
+            return
+        }
 
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
@@ -570,6 +599,7 @@ class BrushRenderer: NSObject, ObservableObject {
         if !newDabs.isEmpty {
             uploadInstances()
             let instanceCount = min(newDabs.count, maxDabs)
+            print("[RENDER] drawing \(instanceCount) dabs")
 
             let canvasPass = MTLRenderPassDescriptor()
             canvasPass.colorAttachments[0].texture = canvasTexture
@@ -595,6 +625,8 @@ class BrushRenderer: NSObject, ObservableObject {
             renderEncoder.endEncoding()
 
             newDabs.removeAll()
+        } else {
+            print("[RENDER] no new dabs to draw")
         }
 
         // Display canvas to view
@@ -617,12 +649,19 @@ class BrushRenderer: NSObject, ObservableObject {
     }
 
     func uploadInstances() {
-        guard let buffer = instanceBuffer else { return }
+        guard let buffer = instanceBuffer else {
+            print("[UPLOAD] instanceBuffer is nil")
+            return
+        }
         let count = min(newDabs.count, maxDabs)
         let byteCount = count * MemoryLayout<DabInstance>.stride
+        print("[UPLOAD] copying \(count) instances, \(byteCount) bytes")
 
         newDabs.withUnsafeBytes { rawBuffer in
-            guard let source = rawBuffer.baseAddress else { return }
+            guard let source = rawBuffer.baseAddress else {
+                print("[UPLOAD] rawBuffer.baseAddress is nil")
+                return
+            }
             memcpy(buffer.contents(), source, byteCount)
         }
     }
@@ -633,6 +672,7 @@ class BrushRenderer: NSObject, ObservableObject {
         let scaleY = Float(canvasSize.height) / Float(max(view.bounds.height, 1))
         let canvasX = Float(point.x) * scaleX
         let canvasY = Float(point.y) * scaleY
+        print("[NORM] viewBounds=\(view.bounds) canvas=\(canvasSize) scale=(\(scaleX), \(scaleY)) in=(\(point.x), \(point.y)) out=(\(canvasX), \(canvasY))")
         return SIMD2<Float>(canvasX, canvasY)
     }
 }

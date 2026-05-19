@@ -16,7 +16,7 @@ struct BrushVertexOut {
     float softness;
     float smudgeStrength;
     int brushType;
-    float3 color;
+    float4 color;
     float2 worldPos;
 };
 
@@ -29,7 +29,7 @@ struct DabInstance {
     float softness;
     float smudgeStrength;
     int brushType;
-    float3 color;
+    float4 color;
     float _pad; // align to 16 bytes
 };
 
@@ -50,7 +50,6 @@ vertex BrushVertexOut brushVertex(
 
     float2 pixelPos = dab.center + rotated * dab.size;
     float2 ndc = (pixelPos / viewportSize) * 2.0 - 1.0;
-    ndc.y = -ndc.y;
 
     BrushVertexOut out;
     out.position = float4(ndc, 0.0, 1.0);
@@ -105,13 +104,13 @@ fragment float4 brushFragment(
 
     alpha *= hardnessFalloff;
 
-    float3 finalColor = in.color;
+    float3 finalColor = in.color.rgb;
 
     // Smudge: sample from canvas backup
     if (in.smudgeStrength > 0.0) {
         float2 canvasUV = in.worldPos / viewportSize;
         float4 canvasColor = canvasBackup.sample(brushSampler, canvasUV);
-        finalColor = mix(in.color, canvasColor.rgb, in.smudgeStrength);
+        finalColor = mix(in.color.rgb, canvasColor.rgb, in.smudgeStrength);
     }
 
     return float4(finalColor, alpha);
