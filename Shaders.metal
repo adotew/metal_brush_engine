@@ -129,10 +129,11 @@ struct PassthroughVertexOut {
 };
 
 vertex PassthroughVertexOut displayVertex(
-    PassthroughVertexIn in [[stage_in]]
+    PassthroughVertexIn in [[stage_in]],
+    constant float2 &displayScale [[buffer(1)]]
 ) {
     PassthroughVertexOut out;
-    out.position = float4(in.position, 0.0, 1.0);
+    out.position = float4(in.position * displayScale, 0.0, 1.0);
     out.texCoord = in.texCoord;
     return out;
 }

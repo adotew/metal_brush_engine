@@ -64,8 +64,10 @@ class BrushMTKView: MTKView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        isDrawing = true
         let point = convert(event.locationInWindow, from: nil)
+        guard brushRenderer?.isPointOverCanvas(point, in: self) == true else { return }
+
+        isDrawing = true
         lastPoint = point
         lastTimestamp = event.timestamp
         brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
@@ -89,10 +91,12 @@ class BrushMTKView: MTKView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if isDrawing {
+            brushRenderer?.endStroke()
+        }
         isDrawing = false
         lastPoint = nil
         lastTimestamp = nil
-        brushRenderer?.endStroke()
         setNeedsDisplay(bounds)
     }
 

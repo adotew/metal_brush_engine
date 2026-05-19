@@ -69,7 +69,7 @@ class BrushRenderer: NSObject, ObservableObject {
     var displaySamplerState: MTLSamplerState!
 
     // MARK: - Canvas
-    let canvasSize = CGSize(width: 2000, height: 2000)
+    let canvasSize = CGSize(width: 6000, height: 4000)
 
     // MARK: - Stroke State
     var newDabs: [DabInstance] = []
@@ -779,9 +779,19 @@ class BrushRenderer: NSObject, ObservableObject {
             needsSnapshotSave = false
         }
 
-        // Display canvas to view
+        // Display canvas to view (letterboxed to preserve aspect ratio)
         let viewW = Float(view.bounds.width)
         let viewH = Float(view.bounds.height)
+        let canvasAspect = Float(canvasSize.width) / Float(canvasSize.height)
+        let viewAspect = viewW / max(viewH, 1)
+
+        var displayScaleX: Float = 1.0
+        var displayScaleY: Float = 1.0
+        if viewAspect > canvasAspect {
+            displayScaleX = canvasAspect / viewAspect
+        } else {
+            displayScaleY = viewAspect / canvasAspect
+        }
 
         let displayPass = MTLRenderPassDescriptor()
         displayPass.colorAttachments[0].texture = drawable.texture
@@ -792,6 +802,8 @@ class BrushRenderer: NSObject, ObservableObject {
         let displayEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: displayPass)!
         displayEncoder.setRenderPipelineState(displayPipelineState)
         displayEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
+        var displayScale = SIMD2<Float>(displayScaleX, displayScaleY)
+        displayEncoder.setVertexBytes(&displayScale, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
         displayEncoder.setFragmentTexture(canvasTexture, index: 0)
         displayEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
         displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
@@ -845,10 +857,36 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Coordinate Conversion
     func normalizePoint(_ point: CGPoint, in view: MTKView) -> SIMD2<Float> {
-        let scaleX = Float(canvasSize.width) / Float(max(view.bounds.width, 1))
-        let scaleY = Float(canvasSize.height) / Float(max(view.bounds.height, 1))
-        let canvasX = Float(point.x) * scaleX
-        let canvasY = Float(point.y) * scaleY
+        let viewW = Float(max(view.bounds.width, 1))
+        let viewH = Float(max(view.bounds.height, 1))
+        let canvasAspect = Float(canvasSize.width) / Float(canvasSize.height)
+        let viewAspect = viewW / viewH
+
+        var canvasX: Float
+        var canvasY: Float
+
+        if viewAspect > canvasAspect {
+            let visibleCanvasW = viewH * canvasAspect
+            let barW = (viewW - visibleCanvasW) / 2
+            let relX = (Float(point.x) - barW) / visibleCanvasW
+            let relY = Float(point.y) / viewH
+            canvasX = relX * Float(canvasSize.width)
+            canvasY = relY * Float(canvasSize.height)
+        } else {
+            let visibleCanvasH = viewW / canvasAspect
+            let barH = (viewH - visibleCanvasH) / 2
+            let relX = Float(point.x) / viewW
+            let relY = (Float(point.y) - barH) / visibleCanvasH
+            canvasX = relX * Float(canvasSize.width)
+            canvasY = relY * Float(canvasSize.height)
+        }
+
         return SIMD2<Float>(canvasX, canvasY)
+    }
+
+    func isPointOverCanvas(_ point: CGPoint, in view: MTKView) -> Bool {
+        let pos = normalizePoint(point, in: view)
+        return pos.x >= 0 && pos.x <= Float(canvasSize.width)
+            && pos.y >= 0 && pos.y <= Float(canvasSize.height)
     }
 }
