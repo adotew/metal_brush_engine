@@ -1,26 +1,6 @@
 import MetalKit
 import SwiftUI
 
-enum BrushType: Int, CaseIterable, Identifiable {
-    case softRound = 0
-    case hardRound = 1
-    case flat = 2
-    case textured = 3
-    case smudge = 4
-
-    var id: Int { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .softRound: return "Soft"
-        case .hardRound: return "Hard"
-        case .flat: return "Flat"
-        case .textured: return "Texture"
-        case .smudge: return "Smudge"
-        }
-    }
-}
-
 struct BrushPoint {
     var position: SIMD2<Float>
     var pressure: Float
@@ -28,9 +8,45 @@ struct BrushPoint {
     var tiltX: Float
     var tiltY: Float
     var azimuth: Float
-    var velocity: Float
     var timestamp: Float
     var rotation: Float
+}
+
+enum RotationMode: Int, Codable, CaseIterable, Identifiable {
+    case followStroke = 0
+    case fixed = 1
+    case random = 2
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .followStroke: return "Follow Stroke"
+        case .fixed: return "Fixed"
+        case .random: return "Random"
+        }
+    }
+}
+
+struct BrushSettings: Codable {
+    var spacing: Float = 0.15
+    var flow: Float = 1.0
+    var scatter: Float = 0.0
+    var hardness: Float = 0.5
+    var softness: Float = 0.0
+    var rotationJitter: Float = 0.0
+    var tiltInfluence: Float = 0.5
+    var smudgeStrength: Float = 0.7
+    var isSmudge: Bool = false
+    var rotationMode: RotationMode = .followStroke
+}
+
+struct BrushPreset: Identifiable {
+    let id = UUID()
+    let name: String
+    let texture: MTLTexture
+    let thumbnail: NSImage
+    var settings: BrushSettings
 }
 
 struct DabInstance {
@@ -41,8 +57,9 @@ struct DabInstance {
     var hardness: Float
     var softness: Float
     var smudgeStrength: Float
-    var brushType: Int32
     var color: SIMD4<Float>
+    var tiltScale: SIMD2<Float>
+    var flow: Float
     var _pad: Float = 0
 }
 
@@ -64,12 +81,20 @@ class BrushRenderer: NSObject, ObservableObject {
     var instanceBuffer: MTLBuffer!
     var canvasTexture: MTLTexture!
     var canvasBackupTexture: MTLTexture!
-    var brushTextures: [MTLTexture] = []
     var samplerState: MTLSamplerState!
     var displaySamplerState: MTLSamplerState!
 
     // MARK: - Canvas
     let canvasSize = CGSize(width: 6000, height: 4000)
+
+    // MARK: - Brush Presets
+    @Published var presets: [BrushPreset] = []
+    @Published var selectedPresetIndex: Int = 0
+
+    var activePreset: BrushPreset? {
+        guard selectedPresetIndex >= 0 && selectedPresetIndex < presets.count else { return nil }
+        return presets[selectedPresetIndex]
+    }
 
     // MARK: - Stroke State
     var newDabs: [DabInstance] = []
@@ -80,16 +105,19 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Published Brush Parameters
     @Published var brushColor: SIMD3<Float> = SIMD3<Float>(0.365, 0.251, 0.216)
-    @Published var brushType: BrushType = .softRound
     @Published var maxBrushSize: Float = 30.0
     @Published var minBrushSize: Float = 2.0
     @Published var hardness: Float = 0.5
     @Published var softness: Float = 0.0
-    @Published var smudgeStrength: Float = 0.7
     @Published var spacing: Float = 0.15
     @Published var scatter: Float = 0.0
     @Published var rotationJitter: Float = 0.0
+    @Published var rotationMode: RotationMode = .followStroke
     @Published var smoothing: Float = 0.3
+    @Published var flow: Float = 1.0
+    @Published var tiltInfluence: Float = 0.5
+    @Published var smudgeStrength: Float = 0.7
+    @Published var isSmudge: Bool = false
 
     // MARK: - Cursor (not @Published — no SwiftUI view reads these)
     var cursorPosition: SIMD2<Float> = .zero
@@ -126,7 +154,7 @@ class BrushRenderer: NSObject, ObservableObject {
         setupCursorPipeline()
         setupQuadBuffer()
         setupInstanceBuffer()
-        generateBrushTextures()
+        loadBrushPresets()
         setupSamplers()
     }
 
@@ -300,17 +328,203 @@ class BrushRenderer: NSObject, ObservableObject {
         displaySamplerState = device.makeSamplerState(descriptor: descriptor)
     }
 
-    // MARK: - Brush Texture Generation
-    func generateBrushTextures(size: Int = 256) {
-        brushTextures = [
-            generateSoftRoundTexture(size: size),
-            generateHardRoundTexture(size: size),
-            generateFlatTexture(size: size),
-            generateTexturedTexture(size: size)
-        ]
+    // MARK: - Brush Preset Loading
+
+    private func brushesDirectoryURL() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appDir = appSupport.appendingPathComponent("MetalBrushEngine", isDirectory: true)
+        return appDir.appendingPathComponent("Brushes", isDirectory: true)
     }
 
-    func generateSoftRoundTexture(size: Int) -> MTLTexture {
+    private func sidecarURL(for pngURL: URL) -> URL {
+        pngURL.deletingPathExtension().appendingPathExtension("json")
+    }
+
+    func loadBrushPresets() {
+        let brushesDir = brushesDirectoryURL()
+        try? FileManager.default.createDirectory(at: brushesDir, withIntermediateDirectories: true)
+
+        let contents = (try? FileManager.default.contentsOfDirectory(at: brushesDir, includingPropertiesForKeys: nil)) ?? []
+        let pngFiles = contents.filter { $0.pathExtension.lowercased() == "png" }
+
+        if pngFiles.isEmpty {
+            ensureDefaultBrushesExist(in: brushesDir)
+        }
+
+        let allPngs = (try? FileManager.default.contentsOfDirectory(at: brushesDir, includingPropertiesForKeys: nil))?
+            .filter { $0.pathExtension.lowercased() == "png" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+
+        var loadedPresets: [BrushPreset] = []
+        for pngURL in allPngs {
+            guard let texture = loadTexture(from: pngURL),
+                  let thumbnail = NSImage(contentsOf: pngURL) else { continue }
+            let settings = loadSettings(from: sidecarURL(for: pngURL))
+            let name = pngURL.deletingPathExtension().lastPathComponent
+            let preset = BrushPreset(
+                name: name,
+                texture: texture,
+                thumbnail: thumbnail,
+                settings: settings
+            )
+            loadedPresets.append(preset)
+        }
+
+        presets = loadedPresets
+        if !presets.isEmpty {
+            selectPreset(at: 0)
+        }
+    }
+
+    func selectPreset(at index: Int) {
+        guard index >= 0 && index < presets.count else { return }
+        selectedPresetIndex = index
+        let settings = presets[index].settings
+        spacing = settings.spacing
+        flow = settings.flow
+        scatter = settings.scatter
+        hardness = settings.hardness
+        softness = settings.softness
+        rotationJitter = settings.rotationJitter
+        rotationMode = settings.rotationMode
+        tiltInfluence = settings.tiltInfluence
+        smudgeStrength = settings.smudgeStrength
+        isSmudge = settings.isSmudge
+        objectWillChange.send()
+    }
+
+    func saveCurrentSettingsToSidecar() {
+        guard selectedPresetIndex >= 0 && selectedPresetIndex < presets.count else { return }
+        let brushesDir = brushesDirectoryURL()
+        let pngURL = brushesDir.appendingPathComponent("\(presets[selectedPresetIndex].name).png")
+        let jsonURL = sidecarURL(for: pngURL)
+        let settings = BrushSettings(
+            spacing: spacing,
+            flow: flow,
+            scatter: scatter,
+            hardness: hardness,
+            softness: softness,
+            rotationJitter: rotationJitter,
+            tiltInfluence: tiltInfluence,
+            smudgeStrength: smudgeStrength,
+            isSmudge: isSmudge,
+            rotationMode: rotationMode
+        )
+        if let data = try? JSONEncoder().encode(settings) {
+            try? data.write(to: jsonURL)
+        }
+    }
+
+    private func loadSettings(from url: URL) -> BrushSettings {
+        guard let data = try? Data(contentsOf: url),
+              let settings = try? JSONDecoder().decode(BrushSettings.self, from: data) else {
+            return BrushSettings()
+        }
+        return settings
+    }
+
+    private func loadTexture(from url: URL) -> MTLTexture? {
+        guard let nsImage = NSImage(contentsOf: url),
+              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var brushPixels = [UInt8](repeating: 0, count: width * height * 4)
+        for i in 0..<width * height {
+            let r = pixels[i * 4 + 0]
+            let g = pixels[i * 4 + 1]
+            let b = pixels[i * 4 + 2]
+            let a = pixels[i * 4 + 3]
+            let gray = UInt8((Int(r) + Int(g) + Int(b)) / 3)
+            let finalAlpha = a < 255 ? UInt8((Int(gray) * Int(a)) / 255) : gray
+            brushPixels[i * 4 + 0] = 255
+            brushPixels[i * 4 + 1] = 255
+            brushPixels[i * 4 + 2] = 255
+            brushPixels[i * 4 + 3] = finalAlpha
+        }
+
+        return createTexture(from: brushPixels, width: width, height: height)
+    }
+
+    private func createTexture(from pixels: [UInt8], width: Int, height: Int) -> MTLTexture? {
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        texture.replace(
+            region: MTLRegionMake2D(0, 0, width, height),
+            mipmapLevel: 0,
+            withBytes: pixels,
+            bytesPerRow: width * 4
+        )
+        return texture
+    }
+
+    // MARK: - Default Brush Generation
+
+    private func ensureDefaultBrushesExist(in directory: URL) {
+        let defaults: [(name: String, pixels: [UInt8], size: Int, settings: BrushSettings)] = [
+            ("Default", generateSoftRoundPixels(size: 256), 256, BrushSettings())
+        ]
+
+        for item in defaults {
+            let pngURL = directory.appendingPathComponent("\(item.name).png")
+            let jsonURL = directory.appendingPathComponent("\(item.name).json")
+            savePNG(pixels: item.pixels, size: item.size, to: pngURL)
+            if let data = try? JSONEncoder().encode(item.settings) {
+                try? data.write(to: jsonURL)
+            }
+        }
+    }
+
+    private func savePNG(pixels: [UInt8], size: Int, to url: URL) {
+        var mutablePixels = pixels
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let provider = CGDataProvider(data: CFDataCreate(nil, &mutablePixels, pixels.count)!) else { return }
+        guard let cgImage = CGImage(
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: size * 4,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: bitmapInfo),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ) else { return }
+
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: size, height: size))
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+        try? pngData.write(to: url)
+    }
+
+    private func generateSoftRoundPixels(size: Int) -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: size * size * 4)
         let center = Float(size - 1) / 2.0
         let radius = center
@@ -330,126 +544,7 @@ class BrushRenderer: NSObject, ObservableObject {
                 pixels[idx + 3] = UInt8(min(alpha * 255.0, 255.0))
             }
         }
-
-        return createTexture(from: pixels, size: size)
-    }
-
-    func generateHardRoundTexture(size: Int) -> MTLTexture {
-        var pixels = [UInt8](repeating: 0, count: size * size * 4)
-        let center = Float(size - 1) / 2.0
-        let radius = center
-        let innerRadius = radius * 0.6
-
-        for y in 0..<size {
-            for x in 0..<size {
-                let dx = Float(x) - center
-                let dy = Float(y) - center
-                let dist = sqrt(dx*dx + dy*dy)
-
-                var alpha: Float
-                if dist <= innerRadius {
-                    alpha = 1.0
-                } else if dist >= radius {
-                    alpha = 0.0
-                } else {
-                    let t = (dist - innerRadius) / (radius - innerRadius)
-                    alpha = 0.5 * (1.0 + cos(t * Float.pi))
-                }
-
-                let idx = (y * size + x) * 4
-                pixels[idx + 0] = 255
-                pixels[idx + 1] = 255
-                pixels[idx + 2] = 255
-                pixels[idx + 3] = UInt8(min(alpha * 255.0, 255.0))
-            }
-        }
-
-        return createTexture(from: pixels, size: size)
-    }
-
-    func generateFlatTexture(size: Int) -> MTLTexture {
-        var pixels = [UInt8](repeating: 0, count: size * size * 4)
-        let center = Float(size - 1) / 2.0
-        let radiusX = center * 0.9
-        let radiusY = center * 0.35
-
-        for y in 0..<size {
-            for x in 0..<size {
-                let dx = (Float(x) - center) / radiusX
-                let dy = (Float(y) - center) / radiusY
-                let dist = sqrt(dx*dx + dy*dy)
-                let t = min(dist, 1.0)
-                var alpha = exp(-t * t * 3.0)
-
-                // Add bristle lines
-                let lineFreq: Float = 20.0
-                let linePattern = abs(sin((Float(x) / Float(size)) * Float.pi * lineFreq))
-                if dist < 0.9 {
-                    alpha *= 0.85 + 0.15 * linePattern
-                }
-
-                let idx = (y * size + x) * 4
-                pixels[idx + 0] = 255
-                pixels[idx + 1] = 255
-                pixels[idx + 2] = 255
-                pixels[idx + 3] = UInt8(min(alpha * 255.0, 255.0))
-            }
-        }
-
-        return createTexture(from: pixels, size: size)
-    }
-
-    func generateTexturedTexture(size: Int) -> MTLTexture {
-        var pixels = [UInt8](repeating: 0, count: size * size * 4)
-        let center = Float(size - 1) / 2.0
-        let radius = center
-
-        for y in 0..<size {
-            for x in 0..<size {
-                let dx = Float(x) - center
-                let dy = Float(y) - center
-                let dist = sqrt(dx*dx + dy*dy)
-                let t = min(dist / radius, 1.0)
-                var alpha = exp(-t * t * 2.5)
-
-                // Noise modulation
-                let noise = hash(x, y)
-                alpha *= 0.7 + 0.6 * noise
-
-                let idx = (y * size + x) * 4
-                pixels[idx + 0] = 255
-                pixels[idx + 1] = 255
-                pixels[idx + 2] = 255
-                pixels[idx + 3] = UInt8(min(max(alpha * 255.0, 0.0), 255.0))
-            }
-        }
-
-        return createTexture(from: pixels, size: size)
-    }
-
-    func createTexture(from pixels: [UInt8], size: Int) -> MTLTexture {
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba8Unorm,
-            width: size,
-            height: size,
-            mipmapped: false
-        )
-        descriptor.usage = .shaderRead
-
-        let texture = device.makeTexture(descriptor: descriptor)!
-        texture.replace(
-            region: MTLRegionMake2D(0, 0, size, size),
-            mipmapLevel: 0,
-            withBytes: pixels,
-            bytesPerRow: size * 4
-        )
-        return texture
-    }
-
-    func hash(_ x: Int, _ y: Int) -> Float {
-        var h = x &* 374761393 &+ y &* 668265263
-        h = (h ^ (h >> 13)) &* 1274126177
-        return Float(h & 0x7fffffff) / Float(0x7fffffff)
+        return pixels
     }
 
     // MARK: - Snapshot / Undo / Redo (ring buffer)
@@ -556,7 +651,7 @@ class BrushRenderer: NSObject, ObservableObject {
         passDescriptor.colorAttachments[0].texture = canvasTexture
         passDescriptor.colorAttachments[0].loadAction = .clear
         passDescriptor.colorAttachments[0].storeAction = .store
-        passDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+        passDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
 
         let renderEncoder = commandBuffer?.makeRenderCommandEncoder(descriptor: passDescriptor)
         renderEncoder?.endEncoding()
@@ -593,9 +688,6 @@ class BrushRenderer: NSObject, ObservableObject {
             lastSmoothed.position.y * (1.0 - smoothingFactor) + point.position.y * smoothingFactor
         )
 
-        let timeDelta = point.timestamp - lastSmoothed.timestamp
-        let velocity = timeDelta > 0 ? hypot(point.position.x - lastSmoothed.position.x, point.position.y - lastSmoothed.position.y) / timeDelta : 0.0
-
         let dx = smoothedPosition.x - lastSmoothed.position.x
         let dy = smoothedPosition.y - lastSmoothed.position.y
         let rotation = atan2(dy, dx)
@@ -607,7 +699,6 @@ class BrushRenderer: NSObject, ObservableObject {
             tiltX: point.tiltX,
             tiltY: point.tiltY,
             azimuth: point.azimuth,
-            velocity: velocity,
             timestamp: point.timestamp,
             rotation: rotation
         )
@@ -655,7 +746,6 @@ class BrushRenderer: NSObject, ObservableObject {
                 tiltX: start.tiltX + (end.tiltX - start.tiltX) * t,
                 tiltY: start.tiltY + (end.tiltY - start.tiltY) * t,
                 azimuth: start.azimuth + (end.azimuth - start.azimuth) * t,
-                velocity: start.velocity + (end.velocity - start.velocity) * t,
                 timestamp: start.timestamp + (end.timestamp - start.timestamp) * t,
                 rotation: rotation
             )
@@ -676,21 +766,41 @@ class BrushRenderer: NSObject, ObservableObject {
             position.y += jitterY
         }
 
+        // Determine base rotation based on mode
+        var rotation: Float
+        switch rotationMode {
+        case .fixed:
+            rotation = 0
+        case .random:
+            rotation = Float.random(in: 0...(2 * Float.pi))
+        case .followStroke:
+            rotation = point.rotation
+        }
+
         // Apply rotation jitter
-        var rotation = point.rotation
         if rotationJitter > 0 {
             rotation += Float.random(in: -1...1) * rotationJitter * Float.pi
         }
 
-        // For flat and textured brushes, add some organic variation based on velocity
-        var size = point.size
-        if brushType == .flat || brushType == .textured {
-            size *= 1.0 - min(point.velocity * 0.001, 0.3)
+        let size = point.size
+        let pressure = point.pressure
+
+        // Tilt elliptical deformation
+        var tiltScale = SIMD2<Float>(1.0, 1.0)
+        if tiltInfluence > 0 {
+            let tiltAmount = sqrt(point.tiltX * point.tiltX + point.tiltY * point.tiltY)
+            if tiltAmount > 0.01 {
+                let squash = max(0.2, 1.0 - tiltAmount * tiltInfluence)
+                let stretch = 1.0 + tiltAmount * tiltInfluence * 0.5
+                let tiltAngle = atan2(point.tiltY, point.tiltX)
+                rotation = tiltAngle + .pi / 2
+                tiltScale = SIMD2<Float>(stretch, squash)
+            }
         }
 
         // Determine smudge strength
         var smudge: Float = 0.0
-        if brushType == .smudge {
+        if isSmudge {
             smudge = smudgeStrength
         }
 
@@ -698,12 +808,13 @@ class BrushRenderer: NSObject, ObservableObject {
             center: position,
             size: size,
             rotation: rotation,
-            pressure: point.pressure,
+            pressure: pressure,
             hardness: hardness,
             softness: softness,
             smudgeStrength: smudge,
-            brushType: Int32(brushType.rawValue),
-            color: SIMD4<Float>(brushColor, 1.0)
+            color: SIMD4<Float>(brushColor, 1.0),
+            tiltScale: tiltScale,
+            flow: flow
         )
 
         newDabs.append(dab)
@@ -761,10 +872,10 @@ class BrushRenderer: NSObject, ObservableObject {
             renderEncoder.setVertexBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.stride, index: 2)
 
             renderEncoder.setFragmentBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.stride, index: 0)
-            for (i, texture) in brushTextures.enumerated() {
-                renderEncoder.setFragmentTexture(texture, index: i)
+            if let texture = activePreset?.texture {
+                renderEncoder.setFragmentTexture(texture, index: 0)
             }
-            renderEncoder.setFragmentTexture(canvasBackupTexture, index: 4)
+            renderEncoder.setFragmentTexture(canvasBackupTexture, index: 1)
             renderEncoder.setFragmentSamplerState(samplerState, index: 0)
 
             renderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: instanceCount)

@@ -5,7 +5,6 @@ class BrushMTKView: MTKView {
     var brushRenderer: BrushRenderer?
     var isDrawing = false
     var lastPoint: CGPoint?
-    var lastTimestamp: TimeInterval?
     var trackingArea: NSTrackingArea?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -69,7 +68,6 @@ class BrushMTKView: MTKView {
 
         isDrawing = true
         lastPoint = point
-        lastTimestamp = event.timestamp
         brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
 
         let brushPoint = createBrushPoint(from: event, location: point)
@@ -86,7 +84,6 @@ class BrushMTKView: MTKView {
         brushRenderer?.continueStroke(with: brushPoint)
 
         lastPoint = point
-        lastTimestamp = event.timestamp
         setNeedsDisplay(bounds)
     }
 
@@ -96,7 +93,6 @@ class BrushMTKView: MTKView {
         }
         isDrawing = false
         lastPoint = nil
-        lastTimestamp = nil
         setNeedsDisplay(bounds)
     }
 
@@ -117,16 +113,6 @@ class BrushMTKView: MTKView {
         let tilt = event.tilt
 
         let timestamp = Float(event.timestamp)
-        var velocity: Float = 0.0
-        if let lastT = lastTimestamp, lastT > 0, let lastP = lastPoint {
-            let dt = Float(event.timestamp - lastT)
-            if dt > 0 {
-                let dx = Float(location.x - lastP.x)
-                let dy = Float(location.y - lastP.y)
-                velocity = sqrt(dx * dx + dy * dy) / dt
-            }
-        }
-
         let normalizedPos = brushRenderer?.normalizePoint(location, in: self) ?? .zero
         let baseSize = brushRenderer?.maxBrushSize ?? 30.0
         let minSize = brushRenderer?.minBrushSize ?? 2.0
@@ -139,7 +125,6 @@ class BrushMTKView: MTKView {
             tiltX: Float(tilt.x),
             tiltY: Float(tilt.y),
             azimuth: 0,
-            velocity: velocity,
             timestamp: timestamp,
             rotation: 0
         )

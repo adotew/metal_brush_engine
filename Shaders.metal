@@ -15,9 +15,9 @@ struct BrushVertexOut {
     float hardness;
     float softness;
     float smudgeStrength;
-    int brushType;
     float4 color;
     float2 worldPos;
+    float flow;
 };
 
 struct DabInstance {
@@ -28,9 +28,10 @@ struct DabInstance {
     float hardness;
     float softness;
     float smudgeStrength;
-    int brushType;
     float4 color;
-    float _pad; // align to 16 bytes
+    float2 tiltScale;
+    float flow;
+    float _pad;
 };
 
 vertex BrushVertexOut brushVertex(
@@ -41,11 +42,12 @@ vertex BrushVertexOut brushVertex(
 ) {
     DabInstance dab = dabs[instanceID];
 
+    float2 scaled = in.position * dab.tiltScale;
     float c = cos(dab.rotation);
     float s = sin(dab.rotation);
     float2 rotated = float2(
-        in.position.x * c - in.position.y * s,
-        in.position.x * s + in.position.y * c
+        scaled.x * c - scaled.y * s,
+        scaled.x * s + scaled.y * c
     );
 
     float2 pixelPos = dab.center + rotated * dab.size;
@@ -58,9 +60,9 @@ vertex BrushVertexOut brushVertex(
     out.hardness = dab.hardness;
     out.softness = dab.softness;
     out.smudgeStrength = dab.smudgeStrength;
-    out.brushType = dab.brushType;
     out.color = dab.color;
     out.worldPos = pixelPos;
+    out.flow = dab.flow;
 
     return out;
 }
@@ -68,23 +70,13 @@ vertex BrushVertexOut brushVertex(
 fragment float4 brushFragment(
     BrushVertexOut in [[stage_in]],
     constant float2 &viewportSize [[buffer(0)]],
-    texture2d<float> brushSoft [[texture(0)]],
-    texture2d<float> brushHard [[texture(1)]],
-    texture2d<float> brushFlat [[texture(2)]],
-    texture2d<float> brushTextured [[texture(3)]],
-    texture2d<float> canvasBackup [[texture(4)]],
+    texture2d<float> brushStamp [[texture(0)]],
+    texture2d<float> canvasBackup [[texture(1)]],
     sampler brushSampler [[sampler(0)]]
 ) {
-    float4 brushAlpha;
-    switch (in.brushType) {
-        case 0: brushAlpha = brushSoft.sample(brushSampler, in.texCoord); break;
-        case 1: brushAlpha = brushHard.sample(brushSampler, in.texCoord); break;
-        case 2: brushAlpha = brushFlat.sample(brushSampler, in.texCoord); break;
-        case 3: brushAlpha = brushTextured.sample(brushSampler, in.texCoord); break;
-        default: brushAlpha = brushSoft.sample(brushSampler, in.texCoord); break;
-    }
+    float4 brushAlpha = brushStamp.sample(brushSampler, in.texCoord);
 
-    float alpha = brushAlpha.a * in.pressure;
+    float alpha = brushAlpha.a * in.pressure * in.flow;
 
     // Edge falloff based on hardness
     float2 center = in.texCoord - 0.5;
