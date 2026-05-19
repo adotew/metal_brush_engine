@@ -2,131 +2,43 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var renderer = BrushRenderer()
+    @State private var showBrushSettings = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Toolbar
-            HStack(spacing: 16) {
-                Text("Metal Brush Engine")
-                    .font(.headline)
+        MetalBrushView(renderer: renderer)
+            .background(Color.black)
+            .toolbar {
+                ToolbarItemGroup {
+                    ColorPicker("Color", selection: colorBinding)
+                        .labelsHidden()
 
-                Spacer()
+                    Button(action: { renderer.undo() }) {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!renderer.canUndo)
+                    .keyboardShortcut("z", modifiers: .command)
 
-                // Color Picker
-                ColorPicker("Color", selection: colorBinding)
-                    .labelsHidden()
-                    .frame(width: 60)
+                    Button(action: { renderer.redo() }) {
+                        Label("Redo", systemImage: "arrow.uturn.forward")
+                    }
+                    .disabled(!renderer.canRedo)
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
 
-                Divider()
-                    .frame(height: 20)
+                    Button(action: { renderer.clearCanvas() }) {
+                        Label("Clear", systemImage: "trash")
+                    }
 
-                // Brush Type Selector
-                Picker("Brush", selection: $renderer.brushType) {
-                    ForEach(BrushType.allCases) { type in
-                        Text(type.displayName).tag(type)
+                    Button(action: { showBrushSettings.toggle() }) {
+                        Label("Brush Settings", systemImage: "pencil")
+                    }
+                    .popover(isPresented: $showBrushSettings, arrowEdge: .bottom) {
+                        BrushSettingsView(renderer: renderer)
+                            .padding()
+                            .frame(width: 300)
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 280)
-
-                Divider()
-                    .frame(height: 20)
-
-                // Size Slider
-                VStack(spacing: 2) {
-                    Text("Size: \(Int(renderer.maxBrushSize))")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.maxBrushSize, in: 1...200)
-                        .frame(width: 100)
-                }
-
-                Divider()
-                    .frame(height: 20)
-
-                // Hardness Slider
-                VStack(spacing: 2) {
-                    Text("Hard: \(Int(renderer.hardness * 100))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.hardness, in: 0...1)
-                        .frame(width: 80)
-                }
-
-                // Softness Slider
-                VStack(spacing: 2) {
-                    Text("Soft: \(Int(renderer.softness * 100))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.softness, in: 0...1)
-                        .frame(width: 80)
-                }
-
-                // Spacing Slider
-                VStack(spacing: 2) {
-                    Text("Space: \(Int(renderer.spacing * 100))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.spacing, in: 0.02...0.5)
-                        .frame(width: 80)
-                }
-
-                Divider()
-                    .frame(height: 20)
-
-                // Smudge Strength (only visible for smudge brush)
-                if renderer.brushType == .smudge {
-                    VStack(spacing: 2) {
-                        Text("Smudge: \(Int(renderer.smudgeStrength * 100))%")
-                            .font(.caption)
-                            .monospacedDigit()
-                        Slider(value: $renderer.smudgeStrength, in: 0...1)
-                            .frame(width: 80)
-                    }
-                }
-
-                // Scatter Slider
-                VStack(spacing: 2) {
-                    Text("Scatter: \(Int(renderer.scatter * 100))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.scatter, in: 0...1)
-                        .frame(width: 60)
-                }
-
-                // Smoothing Slider
-                VStack(spacing: 2) {
-                    Text("Smooth: \(Int(renderer.smoothing * 100))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                    Slider(value: $renderer.smoothing, in: 0...0.9)
-                        .frame(width: 60)
-                }
-
-                Button("Undo") {
-                    renderer.undo()
-                }
-                .disabled(!renderer.canUndo)
-                .keyboardShortcut("z", modifiers: .command)
-
-                Button("Redo") {
-                    renderer.redo()
-                }
-                .disabled(!renderer.canRedo)
-                .keyboardShortcut("z", modifiers: [.command, .shift])
-
-                Button("Clear") {
-                    renderer.clearCanvas()
-                }
-                .buttonStyle(.borderedProminent)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.controlBackgroundColor))
-
-            MetalBrushView(renderer: renderer)
-                .background(Color.black)
-        }
+            .navigationTitle("")
     }
 
     private var colorBinding: Binding<Color> {
@@ -149,5 +61,69 @@ struct ContentView: View {
                 }
             }
         )
+    }
+}
+
+struct BrushSettingsView: View {
+    @ObservedObject var renderer: BrushRenderer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Brush Settings")
+                .font(.headline)
+
+            Picker("Brush", selection: $renderer.brushType) {
+                ForEach(BrushType.allCases) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Size: \(Int(renderer.maxBrushSize))")
+                    .font(.caption)
+                Slider(value: $renderer.maxBrushSize, in: 1...200)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Hardness: \(Int(renderer.hardness * 100))%")
+                    .font(.caption)
+                Slider(value: $renderer.hardness, in: 0...1)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Softness: \(Int(renderer.softness * 100))%")
+                    .font(.caption)
+                Slider(value: $renderer.softness, in: 0...1)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Spacing: \(Int(renderer.spacing * 100))%")
+                    .font(.caption)
+                Slider(value: $renderer.spacing, in: 0.02...0.5)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Scatter: \(Int(renderer.scatter * 100))%")
+                    .font(.caption)
+                Slider(value: $renderer.scatter, in: 0...1)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Smoothing: \(Int(renderer.smoothing * 100))%")
+                    .font(.caption)
+                Slider(value: $renderer.smoothing, in: 0...0.9)
+            }
+
+            if renderer.brushType == .smudge {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Smudge: \(Int(renderer.smudgeStrength * 100))%")
+                        .font(.caption)
+                    Slider(value: $renderer.smudgeStrength, in: 0...1)
+                }
+            }
+        }
     }
 }

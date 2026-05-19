@@ -29,9 +29,9 @@
 			children = (
 				06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */,
 				053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */,
-				227E58D2C209DEC6634064A2 /* ContentView.swift */,
-				15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */,
-				CC662A9791367D780F8DDCF7 /* Shaders.metal */,
+			227E58D2C209DEC6634064A2 /* ContentView.swift */,
+			15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */,
+			CC662A9791367D780F8DDCF7 /* Shaders.metal */,
 				8495E24FDA65BC4BD83251A3 /* Products */,
 			);
 			sourceTree = "<group>";
