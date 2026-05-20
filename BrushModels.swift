@@ -39,6 +39,59 @@ struct BrushSettings: Codable {
     var smudgeStrength: Float = 0.7
     var isSmudge: Bool = false
     var rotationMode: RotationMode = .followStroke
+
+    enum CodingKeys: String, CodingKey {
+        case spacing
+        case flow
+        case scatter
+        case hardness
+        case softness
+        case rotationJitter
+        case tiltInfluence
+        case smudgeStrength
+        case isSmudge
+        case rotationMode
+    }
+
+    init() {}
+
+    init(
+        spacing: Float = 0.15,
+        flow: Float = 1.0,
+        scatter: Float = 0.0,
+        hardness: Float = 0.5,
+        softness: Float = 0.0,
+        rotationJitter: Float = 0.0,
+        tiltInfluence: Float = 0.5,
+        smudgeStrength: Float = 0.7,
+        isSmudge: Bool = false,
+        rotationMode: RotationMode = .followStroke
+    ) {
+        self.spacing = spacing
+        self.flow = flow
+        self.scatter = scatter
+        self.hardness = hardness
+        self.softness = softness
+        self.rotationJitter = rotationJitter
+        self.tiltInfluence = tiltInfluence
+        self.smudgeStrength = smudgeStrength
+        self.isSmudge = isSmudge
+        self.rotationMode = rotationMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        spacing = try container.decodeIfPresent(Float.self, forKey: .spacing) ?? 0.15
+        flow = try container.decodeIfPresent(Float.self, forKey: .flow) ?? 1.0
+        scatter = try container.decodeIfPresent(Float.self, forKey: .scatter) ?? 0.0
+        hardness = try container.decodeIfPresent(Float.self, forKey: .hardness) ?? 0.5
+        softness = try container.decodeIfPresent(Float.self, forKey: .softness) ?? 0.0
+        rotationJitter = try container.decodeIfPresent(Float.self, forKey: .rotationJitter) ?? 0.0
+        tiltInfluence = try container.decodeIfPresent(Float.self, forKey: .tiltInfluence) ?? 0.5
+        smudgeStrength = try container.decodeIfPresent(Float.self, forKey: .smudgeStrength) ?? 0.7
+        isSmudge = try container.decodeIfPresent(Bool.self, forKey: .isSmudge) ?? false
+        rotationMode = try container.decodeIfPresent(RotationMode.self, forKey: .rotationMode) ?? .followStroke
+    }
 }
 
 struct BrushPreset: Identifiable {

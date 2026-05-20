@@ -8,27 +8,46 @@
 
 /* Begin PBXBuildFile section */
 		1B1D45BA4CE405E4F435C4C1 /* BrushEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */; };
+		38D2D119904806B7E044A2D9 /* BrushSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050742407ABE4AF71D715572 /* BrushSettingsTests.swift */; };
 		4AA0788EAAD04A91B2939972 /* CanvasHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB472A415EFD4C959DD7843C /* CanvasHistory.swift */; };
 		4AD67AB1C1C0F50D67EE38D6 /* BrushPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */; };
 		676FEE027DAF81E16BFEEA3D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 227E58D2C209DEC6634064A2 /* ContentView.swift */; };
 		9E7283B85C10301A6822B5DF /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = CC662A9791367D780F8DDCF7 /* Shaders.metal */; };
 		A45AB46FD315D565F1F39B42 /* MetalBrushView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */; };
+		ADDB80DB61A716C7800A4CB5 /* BrushEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894F8AF5A07DCEB979EA43F0 /* BrushEngineTests.swift */; };
 		B7C816B2956662C39BFC1AC0 /* BrushModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B72EAB0E2CFDE4B61561FD2E /* BrushModels.swift */; };
+		BE8D9F5EF00EF43ADC679FE4 /* DiagnosticPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7FBB4DAB7F6269F6988B5F6 /* DiagnosticPerformanceTests.swift */; };
 		D9F2731B4A36D4B2BC575AEE /* CanvasViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112919354FEE7E4AA1CC720B /* CanvasViewport.swift */; };
+		F20FC92A342263B7CAD61A71 /* CanvasViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1231E526F491D005F45336 /* CanvasViewportTests.swift */; };
 		FAF3D0AAD13D30BCB8A4195F /* BrushEngineApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */; };
 		FBDE9E982022DE2EBD6B9F7E /* BrushRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0505D25F4BB907895A14B710 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E4CFFE1DAEB09C79D893EF98 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 053787550F60B112EEA1B2EB;
+			remoteInfo = MetalBrushEngine;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		050742407ABE4AF71D715572 /* BrushSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushSettingsTests.swift; sourceTree = "<group>"; };
 		053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushRenderer.swift; sourceTree = "<group>"; };
 		06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngineApp.swift; sourceTree = "<group>"; };
 		112919354FEE7E4AA1CC720B /* CanvasViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasViewport.swift; sourceTree = "<group>"; };
 		15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalBrushView.swift; sourceTree = "<group>"; };
 		21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushPresetStore.swift; sourceTree = "<group>"; };
 		227E58D2C209DEC6634064A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		7E1231E526F491D005F45336 /* CanvasViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasViewportTests.swift; sourceTree = "<group>"; };
+		894F8AF5A07DCEB979EA43F0 /* BrushEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngineTests.swift; sourceTree = "<group>"; };
 		92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngine.swift; sourceTree = "<group>"; };
 		B72EAB0E2CFDE4B61561FD2E /* BrushModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushModels.swift; sourceTree = "<group>"; };
+		B7FBB4DAB7F6269F6988B5F6 /* DiagnosticPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticPerformanceTests.swift; sourceTree = "<group>"; };
 		BB472A415EFD4C959DD7843C /* CanvasHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasHistory.swift; sourceTree = "<group>"; };
+		BB765FD02AAF614879CF1389 /* MetalBrushEngineTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MetalBrushEngineTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC662A9791367D780F8DDCF7 /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
 		FDDE300B8AD3A277F2638668 /* MetalBrushEngine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MetalBrushEngine.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -47,14 +66,28 @@
 				227E58D2C209DEC6634064A2 /* ContentView.swift */,
 				15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */,
 				CC662A9791367D780F8DDCF7 /* Shaders.metal */,
+				5E3756C4D8CD8DEB1449B650 /* MetalBrushEngineTests */,
 				8495E24FDA65BC4BD83251A3 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		5E3756C4D8CD8DEB1449B650 /* MetalBrushEngineTests */ = {
+			isa = PBXGroup;
+			children = (
+				894F8AF5A07DCEB979EA43F0 /* BrushEngineTests.swift */,
+				050742407ABE4AF71D715572 /* BrushSettingsTests.swift */,
+				7E1231E526F491D005F45336 /* CanvasViewportTests.swift */,
+				B7FBB4DAB7F6269F6988B5F6 /* DiagnosticPerformanceTests.swift */,
+			);
+			name = MetalBrushEngineTests;
+			path = Tests/MetalBrushEngineTests;
 			sourceTree = "<group>";
 		};
 		8495E24FDA65BC4BD83251A3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				FDDE300B8AD3A277F2638668 /* MetalBrushEngine.app */,
+				BB765FD02AAF614879CF1389 /* MetalBrushEngineTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,6 +111,24 @@
 			productName = MetalBrushEngine;
 			productReference = FDDE300B8AD3A277F2638668 /* MetalBrushEngine.app */;
 			productType = "com.apple.product-type.application";
+		};
+		59FEE1B5F3B455631AF56EF0 /* MetalBrushEngineTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 045D433EB2D9A389668B3DAF /* Build configuration list for PBXNativeTarget "MetalBrushEngineTests" */;
+			buildPhases = (
+				31083E54D1CCCEFA82EF1C10 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BECBD5313765402A65E92FFB /* PBXTargetDependency */,
+			);
+			name = MetalBrushEngineTests;
+			packageProductDependencies = (
+			);
+			productName = MetalBrushEngineTests;
+			productReference = BB765FD02AAF614879CF1389 /* MetalBrushEngineTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -105,11 +156,23 @@
 			projectRoot = "";
 			targets = (
 				053787550F60B112EEA1B2EB /* MetalBrushEngine */,
+				59FEE1B5F3B455631AF56EF0 /* MetalBrushEngineTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		31083E54D1CCCEFA82EF1C10 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ADDB80DB61A716C7800A4CB5 /* BrushEngineTests.swift in Sources */,
+				38D2D119904806B7E044A2D9 /* BrushSettingsTests.swift in Sources */,
+				F20FC92A342263B7CAD61A71 /* CanvasViewportTests.swift in Sources */,
+				BE8D9F5EF00EF43ADC679FE4 /* DiagnosticPerformanceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CD7DDF648B0148E14C66C9C1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -128,6 +191,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BECBD5313765402A65E92FFB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 053787550F60B112EEA1B2EB /* MetalBrushEngine */;
+			targetProxy = 0505D25F4BB907895A14B710 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		392A93F749DDA34A68C3CC4B /* Debug */ = {
@@ -206,6 +277,25 @@
 			};
 			name = Release;
 		};
+		9D548E4EA660150D4DA8045F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.metalbrushengine.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MetalBrushEngine.app/Contents/MacOS/MetalBrushEngine";
+			};
+			name = Debug;
+		};
 		EC241DDA8E59EDCE46357594 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -275,9 +365,37 @@
 			};
 			name = Debug;
 		};
+		FB98ED1C287D538D36F741F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.metalbrushengine.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MetalBrushEngine.app/Contents/MacOS/MetalBrushEngine";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		045D433EB2D9A389668B3DAF /* Build configuration list for PBXNativeTarget "MetalBrushEngineTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D548E4EA660150D4DA8045F /* Debug */,
+				FB98ED1C287D538D36F741F1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		11A45F7FC67A3E3943D9E753 /* Build configuration list for PBXNativeTarget "MetalBrushEngine" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

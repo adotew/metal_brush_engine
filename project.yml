@@ -20,3 +20,15 @@ targets:
       SWIFT_VERSION: "5.9"
       INFOPLIST_FILE: Info.plist
       LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+  MetalBrushEngineTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - Tests/MetalBrushEngineTests
+    dependencies:
+      - target: MetalBrushEngine
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.metalbrushengine.tests
+      GENERATE_INFOPLIST_FILE: YES
+      SWIFT_VERSION: "5.9"
