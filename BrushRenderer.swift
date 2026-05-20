@@ -101,6 +101,7 @@ class BrushRenderer: NSObject, ObservableObject {
     var lastPlacedPoint: BrushPoint?
     var lastSmoothedPoint: BrushPoint?
     var hasPlacedDabs: Bool = false
+    var lastStrokeRotation: Float = 0
     let maxDabs = 10000
 
     // MARK: - Published Brush Parameters
@@ -661,6 +662,7 @@ class BrushRenderer: NSObject, ObservableObject {
         lastPlacedPoint = nil
         lastSmoothedPoint = nil
         hasPlacedDabs = false
+        lastStrokeRotation = 0
 
         if !skipSnapshot {
             saveSnapshot() // Save the now-empty canvas
@@ -673,6 +675,7 @@ class BrushRenderer: NSObject, ObservableObject {
         lastPlacedPoint = point
         hasPlacedDabs = false
         currentTime = point.timestamp
+        lastStrokeRotation = point.rotation
 
         // Place initial dab
         addDab(at: point)
@@ -680,31 +683,35 @@ class BrushRenderer: NSObject, ObservableObject {
 
     func continueStroke(with point: BrushPoint) {
         guard let lastSmoothed = lastSmoothedPoint else { return }
+        guard let lastPlaced = lastPlacedPoint else { return }
 
-        // Smooth the input
-        let smoothingFactor = smoothing
+        // Interpret smoothing as stabilization: 0 is raw input, 0.9 is heavily stabilized.
+        let stabilization = min(max(smoothing, 0), 0.95)
+        let inputWeight = 1.0 - stabilization
         let smoothedPosition = SIMD2<Float>(
-            lastSmoothed.position.x * (1.0 - smoothingFactor) + point.position.x * smoothingFactor,
-            lastSmoothed.position.y * (1.0 - smoothingFactor) + point.position.y * smoothingFactor
+            lastSmoothed.position.x * stabilization + point.position.x * inputWeight,
+            lastSmoothed.position.y * stabilization + point.position.y * inputWeight
         )
 
         let dx = smoothedPosition.x - lastSmoothed.position.x
         let dy = smoothedPosition.y - lastSmoothed.position.y
-        let rotation = atan2(dy, dx)
+        let movementDistance = hypot(dx, dy)
+        let rotation = movementDistance > 0.001 ? atan2(dy, dx) : lastStrokeRotation
+        lastStrokeRotation = rotation
 
         let smoothedPoint = BrushPoint(
             position: smoothedPosition,
-            pressure: lastSmoothed.pressure * (1.0 - smoothingFactor) + point.pressure * smoothingFactor,
-            size: point.size,
-            tiltX: point.tiltX,
-            tiltY: point.tiltY,
-            azimuth: point.azimuth,
+            pressure: lastSmoothed.pressure * stabilization + point.pressure * inputWeight,
+            size: lastSmoothed.size * stabilization + point.size * inputWeight,
+            tiltX: lastSmoothed.tiltX * stabilization + point.tiltX * inputWeight,
+            tiltY: lastSmoothed.tiltY * stabilization + point.tiltY * inputWeight,
+            azimuth: lastSmoothed.azimuth * stabilization + point.azimuth * inputWeight,
             timestamp: point.timestamp,
             rotation: rotation
         )
 
-        // Interpolate dabs between last placed and smoothed
-        interpolateDabs(from: lastPlacedPoint!, to: smoothedPoint)
+        // Interpolate dabs from the last actual dab so leftover distance carries across events.
+        interpolateDabs(from: lastPlaced, to: smoothedPoint)
 
         lastSmoothedPoint = smoothedPoint
     }
@@ -716,41 +723,27 @@ class BrushRenderer: NSObject, ObservableObject {
         lastPlacedPoint = nil
         lastSmoothedPoint = nil
         hasPlacedDabs = false
+        lastStrokeRotation = 0
         needsSnapshotSave = true
     }
 
     // MARK: - Dab Placement
     func interpolateDabs(from start: BrushPoint, to end: BrushPoint) {
-        let distance = hypot(end.position.x - start.position.x, end.position.y - start.position.y)
-        let avgSize = (start.size + end.size) / 2.0
-        let stepSize = max(1.0, avgSize * spacing)
+        var current = start
+        var remaining = distance(from: current.position, to: end.position)
 
-        guard distance > 0.1 else { return }
+        while remaining > 0.1 && newDabs.count < maxDabs {
+            let avgSize = (current.size + end.size) / 2.0
+            let stepSize = max(1.0, avgSize * spacing)
+            guard remaining >= stepSize else { break }
 
-        let numSteps = max(1, Int(floor(distance / stepSize)))
-
-        for i in 1...numSteps {
-            let t = Float(i) / Float(numSteps)
-            let pos = SIMD2<Float>(
-                start.position.x + (end.position.x - start.position.x) * t,
-                start.position.y + (end.position.y - start.position.y) * t
-            )
-            let pressure = start.pressure + (end.pressure - start.pressure) * t
-            let size = start.size + (end.size - start.size) * t
-            let rotation = start.rotation + (end.rotation - start.rotation) * t
-
-            let point = BrushPoint(
-                position: pos,
-                pressure: pressure,
-                size: size,
-                tiltX: start.tiltX + (end.tiltX - start.tiltX) * t,
-                tiltY: start.tiltY + (end.tiltY - start.tiltY) * t,
-                azimuth: start.azimuth + (end.azimuth - start.azimuth) * t,
-                timestamp: start.timestamp + (end.timestamp - start.timestamp) * t,
-                rotation: rotation
-            )
-
+            let t = stepSize / remaining
+            let rotation = atan2(end.position.y - current.position.y, end.position.x - current.position.x)
+            let point = interpolatedPoint(from: current, to: end, t: t, rotation: rotation)
             addDab(at: point)
+
+            current = point
+            remaining = distance(from: current.position, to: end.position)
         }
     }
 
@@ -765,6 +758,8 @@ class BrushRenderer: NSObject, ObservableObject {
             position.x += jitterX
             position.y += jitterY
         }
+        position.x = min(max(position.x, 0), Float(canvasSize.width))
+        position.y = min(max(position.y, 0), Float(canvasSize.height))
 
         // Determine base rotation based on mode
         var rotation: Float
@@ -820,6 +815,26 @@ class BrushRenderer: NSObject, ObservableObject {
         newDabs.append(dab)
         lastPlacedPoint = point
         hasPlacedDabs = true
+    }
+
+    private func distance(from start: SIMD2<Float>, to end: SIMD2<Float>) -> Float {
+        hypot(end.x - start.x, end.y - start.y)
+    }
+
+    private func interpolatedPoint(from start: BrushPoint, to end: BrushPoint, t: Float, rotation: Float) -> BrushPoint {
+        BrushPoint(
+            position: SIMD2<Float>(
+                start.position.x + (end.position.x - start.position.x) * t,
+                start.position.y + (end.position.y - start.position.y) * t
+            ),
+            pressure: start.pressure + (end.pressure - start.pressure) * t,
+            size: start.size + (end.size - start.size) * t,
+            tiltX: start.tiltX + (end.tiltX - start.tiltX) * t,
+            tiltY: start.tiltY + (end.tiltY - start.tiltY) * t,
+            azimuth: start.azimuth + (end.azimuth - start.azimuth) * t,
+            timestamp: start.timestamp + (end.timestamp - start.timestamp) * t,
+            rotation: rotation
+        )
     }
 
     // MARK: - Rendering
@@ -920,8 +935,13 @@ class BrushRenderer: NSObject, ObservableObject {
         displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         displayEncoder.endEncoding()
 
-        // Cursor overlay pass (small quad, only where cursor is visible)
+        // Cursor overlay pass (small quad, only where cursor is visible over the canvas)
+        let visibleCanvas = visibleCanvasFrame(for: view.bounds.size)
         let cursorVisible = showCursor
+            && cursorPosition.x >= Float(visibleCanvas.minX)
+            && cursorPosition.x <= Float(visibleCanvas.maxX)
+            && cursorPosition.y >= Float(visibleCanvas.minY)
+            && cursorPosition.y <= Float(visibleCanvas.maxY)
         if cursorVisible {
             let cursorPass = MTLRenderPassDescriptor()
             cursorPass.colorAttachments[0].texture = drawable.texture
@@ -935,8 +955,10 @@ class BrushRenderer: NSObject, ObservableObject {
             // Pass center and radius in NDC [-1,1] space
             let ndcCenterX = (cursorPosition.x / max(viewW, 1)) * 2 - 1
             let ndcCenterY = (cursorPosition.y / max(viewH, 1)) * 2 - 1
-            let ndcRadiusX = maxBrushSize / Float(canvasSize.width) * 2
-            let ndcRadiusY = maxBrushSize / Float(canvasSize.height) * 2
+            let canvasToViewScale = Float(visibleCanvas.width) / Float(canvasSize.width)
+            let cursorRadiusPixels = maxBrushSize * canvasToViewScale
+            let ndcRadiusX = cursorRadiusPixels / max(viewW, 1) * 2
+            let ndcRadiusY = cursorRadiusPixels / max(viewH, 1) * 2
 
             var cursorUniforms = CursorUniforms(
                 center: SIMD2<Float>(ndcCenterX, ndcCenterY),
@@ -968,36 +990,44 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Coordinate Conversion
     func normalizePoint(_ point: CGPoint, in view: MTKView) -> SIMD2<Float> {
-        let viewW = Float(max(view.bounds.width, 1))
-        let viewH = Float(max(view.bounds.height, 1))
-        let canvasAspect = Float(canvasSize.width) / Float(canvasSize.height)
-        let viewAspect = viewW / viewH
-
-        var canvasX: Float
-        var canvasY: Float
-
-        if viewAspect > canvasAspect {
-            let visibleCanvasW = viewH * canvasAspect
-            let barW = (viewW - visibleCanvasW) / 2
-            let relX = (Float(point.x) - barW) / visibleCanvasW
-            let relY = Float(point.y) / viewH
-            canvasX = relX * Float(canvasSize.width)
-            canvasY = relY * Float(canvasSize.height)
-        } else {
-            let visibleCanvasH = viewW / canvasAspect
-            let barH = (viewH - visibleCanvasH) / 2
-            let relX = Float(point.x) / viewW
-            let relY = (Float(point.y) - barH) / visibleCanvasH
-            canvasX = relX * Float(canvasSize.width)
-            canvasY = relY * Float(canvasSize.height)
-        }
+        let visibleCanvas = visibleCanvasFrame(for: view.bounds.size)
+        let relX = (point.x - visibleCanvas.minX) / max(visibleCanvas.width, 1)
+        let relY = (point.y - visibleCanvas.minY) / max(visibleCanvas.height, 1)
+        let canvasX = Float(relX) * Float(canvasSize.width)
+        let canvasY = Float(relY) * Float(canvasSize.height)
 
         return SIMD2<Float>(canvasX, canvasY)
     }
 
+    func clampedCanvasPoint(_ point: SIMD2<Float>) -> SIMD2<Float> {
+        SIMD2<Float>(
+            min(max(point.x, 0), Float(canvasSize.width)),
+            min(max(point.y, 0), Float(canvasSize.height))
+        )
+    }
+
     func isPointOverCanvas(_ point: CGPoint, in view: MTKView) -> Bool {
-        let pos = normalizePoint(point, in: view)
-        return pos.x >= 0 && pos.x <= Float(canvasSize.width)
-            && pos.y >= 0 && pos.y <= Float(canvasSize.height)
+        let visibleCanvas = visibleCanvasFrame(for: view.bounds.size)
+        return point.x >= visibleCanvas.minX
+            && point.x <= visibleCanvas.maxX
+            && point.y >= visibleCanvas.minY
+            && point.y <= visibleCanvas.maxY
+    }
+
+    private func visibleCanvasFrame(for viewSize: CGSize) -> CGRect {
+        let viewW = max(viewSize.width, 1)
+        let viewH = max(viewSize.height, 1)
+        let canvasAspect = canvasSize.width / canvasSize.height
+        let viewAspect = viewW / viewH
+
+        if viewAspect > canvasAspect {
+            let visibleCanvasW = viewH * canvasAspect
+            let barW = (viewW - visibleCanvasW) / 2
+            return CGRect(x: barW, y: 0, width: visibleCanvasW, height: viewH)
+        } else {
+            let visibleCanvasH = viewW / canvasAspect
+            let barH = (viewH - visibleCanvasH) / 2
+            return CGRect(x: 0, y: barH, width: viewW, height: visibleCanvasH)
+        }
     }
 }

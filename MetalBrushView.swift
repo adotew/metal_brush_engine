@@ -113,7 +113,8 @@ class BrushMTKView: MTKView {
         let tilt = event.tilt
 
         let timestamp = Float(event.timestamp)
-        let normalizedPos = brushRenderer?.normalizePoint(location, in: self) ?? .zero
+        let rawPosition = brushRenderer?.normalizePoint(location, in: self) ?? .zero
+        let normalizedPos = brushRenderer?.clampedCanvasPoint(rawPosition) ?? rawPosition
         let baseSize = brushRenderer?.maxBrushSize ?? 30.0
         let minSize = brushRenderer?.minBrushSize ?? 2.0
         let size = minSize + (baseSize - minSize) * clampedPressure
