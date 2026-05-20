@@ -6,6 +6,11 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - BrushEngineApp.swift
+      - BrushModels.swift
+      - BrushEngine.swift
+      - CanvasViewport.swift
+      - BrushPresetStore.swift
+      - CanvasHistory.swift
       - ContentView.swift
       - MetalBrushView.swift
       - BrushRenderer.swift

@@ -7,9 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1B1D45BA4CE405E4F435C4C1 /* BrushEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */; };
+		4AA0788EAAD04A91B2939972 /* CanvasHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB472A415EFD4C959DD7843C /* CanvasHistory.swift */; };
+		4AD67AB1C1C0F50D67EE38D6 /* BrushPresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */; };
 		676FEE027DAF81E16BFEEA3D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 227E58D2C209DEC6634064A2 /* ContentView.swift */; };
 		9E7283B85C10301A6822B5DF /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = CC662A9791367D780F8DDCF7 /* Shaders.metal */; };
 		A45AB46FD315D565F1F39B42 /* MetalBrushView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */; };
+		B7C816B2956662C39BFC1AC0 /* BrushModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B72EAB0E2CFDE4B61561FD2E /* BrushModels.swift */; };
+		D9F2731B4A36D4B2BC575AEE /* CanvasViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112919354FEE7E4AA1CC720B /* CanvasViewport.swift */; };
 		FAF3D0AAD13D30BCB8A4195F /* BrushEngineApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */; };
 		FBDE9E982022DE2EBD6B9F7E /* BrushRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */; };
 /* End PBXBuildFile section */
@@ -17,8 +22,13 @@
 /* Begin PBXFileReference section */
 		053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushRenderer.swift; sourceTree = "<group>"; };
 		06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngineApp.swift; sourceTree = "<group>"; };
+		112919354FEE7E4AA1CC720B /* CanvasViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasViewport.swift; sourceTree = "<group>"; };
 		15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalBrushView.swift; sourceTree = "<group>"; };
+		21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushPresetStore.swift; sourceTree = "<group>"; };
 		227E58D2C209DEC6634064A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngine.swift; sourceTree = "<group>"; };
+		B72EAB0E2CFDE4B61561FD2E /* BrushModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushModels.swift; sourceTree = "<group>"; };
+		BB472A415EFD4C959DD7843C /* CanvasHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasHistory.swift; sourceTree = "<group>"; };
 		CC662A9791367D780F8DDCF7 /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
 		FDDE300B8AD3A277F2638668 /* MetalBrushEngine.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MetalBrushEngine.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -27,11 +37,16 @@
 		3BF428FE207E865D69CF19B8 = {
 			isa = PBXGroup;
 			children = (
+				92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */,
 				06E6A45E07A500AC75EF8A63 /* BrushEngineApp.swift */,
+				B72EAB0E2CFDE4B61561FD2E /* BrushModels.swift */,
+				21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */,
 				053E83AD1DB6A58E57594A2B /* BrushRenderer.swift */,
-			227E58D2C209DEC6634064A2 /* ContentView.swift */,
-			15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */,
-			CC662A9791367D780F8DDCF7 /* Shaders.metal */,
+				BB472A415EFD4C959DD7843C /* CanvasHistory.swift */,
+				112919354FEE7E4AA1CC720B /* CanvasViewport.swift */,
+				227E58D2C209DEC6634064A2 /* ContentView.swift */,
+				15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */,
+				CC662A9791367D780F8DDCF7 /* Shaders.metal */,
 				8495E24FDA65BC4BD83251A3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -99,8 +114,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1B1D45BA4CE405E4F435C4C1 /* BrushEngine.swift in Sources */,
 				FAF3D0AAD13D30BCB8A4195F /* BrushEngineApp.swift in Sources */,
+				B7C816B2956662C39BFC1AC0 /* BrushModels.swift in Sources */,
+				4AD67AB1C1C0F50D67EE38D6 /* BrushPresetStore.swift in Sources */,
 				FBDE9E982022DE2EBD6B9F7E /* BrushRenderer.swift in Sources */,
+				4AA0788EAAD04A91B2939972 /* CanvasHistory.swift in Sources */,
+				D9F2731B4A36D4B2BC575AEE /* CanvasViewport.swift in Sources */,
 				676FEE027DAF81E16BFEEA3D /* ContentView.swift in Sources */,
 				A45AB46FD315D565F1F39B42 /* MetalBrushView.swift in Sources */,
 				9E7283B85C10301A6822B5DF /* Shaders.metal in Sources */,
