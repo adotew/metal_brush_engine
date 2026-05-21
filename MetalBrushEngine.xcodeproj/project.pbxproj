@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		085CFEF3277BBE7AB5ECCAF8 /* BrushPresetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF2132C489C831F354CBE06 /* BrushPresetStoreTests.swift */; };
 		1B1D45BA4CE405E4F435C4C1 /* BrushEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */; };
 		38D2D119904806B7E044A2D9 /* BrushSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 050742407ABE4AF71D715572 /* BrushSettingsTests.swift */; };
 		4AA0788EAAD04A91B2939972 /* CanvasHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB472A415EFD4C959DD7843C /* CanvasHistory.swift */; };
@@ -41,6 +42,7 @@
 		15A3E07B8EB20644C90B28C4 /* MetalBrushView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalBrushView.swift; sourceTree = "<group>"; };
 		21FF3CCB751FF4C910F96174 /* BrushPresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushPresetStore.swift; sourceTree = "<group>"; };
 		227E58D2C209DEC6634064A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5DF2132C489C831F354CBE06 /* BrushPresetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushPresetStoreTests.swift; sourceTree = "<group>"; };
 		7E1231E526F491D005F45336 /* CanvasViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasViewportTests.swift; sourceTree = "<group>"; };
 		894F8AF5A07DCEB979EA43F0 /* BrushEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngineTests.swift; sourceTree = "<group>"; };
 		92CC2E4870787DFCA884A7E2 /* BrushEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrushEngine.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				894F8AF5A07DCEB979EA43F0 /* BrushEngineTests.swift */,
+				5DF2132C489C831F354CBE06 /* BrushPresetStoreTests.swift */,
 				050742407ABE4AF71D715572 /* BrushSettingsTests.swift */,
 				7E1231E526F491D005F45336 /* CanvasViewportTests.swift */,
 				B7FBB4DAB7F6269F6988B5F6 /* DiagnosticPerformanceTests.swift */,
@@ -167,6 +170,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				ADDB80DB61A716C7800A4CB5 /* BrushEngineTests.swift in Sources */,
+				085CFEF3277BBE7AB5ECCAF8 /* BrushPresetStoreTests.swift in Sources */,
 				38D2D119904806B7E044A2D9 /* BrushSettingsTests.swift in Sources */,
 				F20FC92A342263B7CAD61A71 /* CanvasViewportTests.swift in Sources */,
 				BE8D9F5EF00EF43ADC679FE4 /* DiagnosticPerformanceTests.swift in Sources */,

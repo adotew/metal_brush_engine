@@ -28,6 +28,24 @@ enum RotationMode: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum BrushCategory: String, Codable, CaseIterable, Identifiable {
+    case sketching
+    case inking
+    case painting
+    case smudge
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .sketching: return "Sketching"
+        case .inking: return "Inking"
+        case .painting: return "Painting"
+        case .smudge: return "Smudge"
+        }
+    }
+}
+
 struct BrushSettings: Codable {
     var spacing: Float = 0.15
     var flow: Float = 1.0
@@ -38,6 +56,7 @@ struct BrushSettings: Codable {
     var tiltInfluence: Float = 0.5
     var smudgeStrength: Float = 0.7
     var isSmudge: Bool = false
+    var isEraser: Bool = false
     var rotationMode: RotationMode = .followStroke
 
     enum CodingKeys: String, CodingKey {
@@ -50,6 +69,7 @@ struct BrushSettings: Codable {
         case tiltInfluence
         case smudgeStrength
         case isSmudge
+        case isEraser
         case rotationMode
     }
 
@@ -65,6 +85,7 @@ struct BrushSettings: Codable {
         tiltInfluence: Float = 0.5,
         smudgeStrength: Float = 0.7,
         isSmudge: Bool = false,
+        isEraser: Bool = false,
         rotationMode: RotationMode = .followStroke
     ) {
         self.spacing = spacing
@@ -76,6 +97,7 @@ struct BrushSettings: Codable {
         self.tiltInfluence = tiltInfluence
         self.smudgeStrength = smudgeStrength
         self.isSmudge = isSmudge
+        self.isEraser = isEraser
         self.rotationMode = rotationMode
     }
 
@@ -90,13 +112,16 @@ struct BrushSettings: Codable {
         tiltInfluence = try container.decodeIfPresent(Float.self, forKey: .tiltInfluence) ?? 0.5
         smudgeStrength = try container.decodeIfPresent(Float.self, forKey: .smudgeStrength) ?? 0.7
         isSmudge = try container.decodeIfPresent(Bool.self, forKey: .isSmudge) ?? false
+        isEraser = try container.decodeIfPresent(Bool.self, forKey: .isEraser) ?? false
         rotationMode = try container.decodeIfPresent(RotationMode.self, forKey: .rotationMode) ?? .followStroke
     }
 }
 
 struct BrushPreset: Identifiable {
-    let id = UUID()
-    let name: String
+    var id: String { name }
+    var name: String
+    var category: BrushCategory
+    var isUserEditable: Bool
     let texture: MTLTexture
     let thumbnail: NSImage
     var settings: BrushSettings

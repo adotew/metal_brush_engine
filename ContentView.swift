@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var renderer = BrushRenderer()
-    @State private var showBrushSettings = false
+    @State private var showBrushLibrary = false
     @State private var showLayers = false
 
     var body: some View {
@@ -39,13 +39,13 @@ struct ContentView: View {
                         .frame(width: 280)
                 }
 
-                Button(action: { showBrushSettings.toggle() }) {
-                    Label("Brush Settings", systemImage: "pencil")
+                Button(action: { showBrushLibrary.toggle() }) {
+                    Label("Brush Library", systemImage: "paintbrush.pointed")
                 }
-                .popover(isPresented: $showBrushSettings, arrowEdge: .bottom) {
-                    BrushSettingsView(renderer: renderer)
+                .popover(isPresented: $showBrushLibrary, arrowEdge: .bottom) {
+                    BrushLibraryView(renderer: renderer)
                         .padding()
-                        .frame(width: 300)
+                        .frame(width: 460, height: 520)
                 }
             }
         }
@@ -260,109 +260,216 @@ struct ProcreateSizeSlider: View {
     }
 }
 
-struct BrushSettingsView: View {
+struct BrushLibraryView: View {
     @ObservedObject var renderer: BrushRenderer
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Brush Settings")
-                .font(.headline)
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Brushes")
+                    .font(.headline)
+                    .padding(.bottom, 4)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(renderer.presets.enumerated()), id: \.element.id) { index, preset in
-                        Button(action: { renderer.selectPreset(at: index) }) {
-                            Image(nsImage: preset.thumbnail)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 48, height: 48)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(renderer.selectedPresetIndex == index ? Color.accentColor : Color.clear, lineWidth: 2)
-                                )
+                ForEach(BrushCategory.allCases) { category in
+                    Button(action: { renderer.selectedBrushCategory = category }) {
+                        HStack {
+                            Text(category.displayName)
+                                .lineLimit(1)
+                            Spacer()
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 7)
+                        .background(renderer.selectedBrushCategory == category ? Color.accentColor.opacity(0.16) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(width: 112, alignment: .top)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(renderer.selectedBrushCategory.displayName)
+                        .font(.headline)
+                    Spacer()
+                }
+
+                BrushPresetList(renderer: renderer)
+
+                Divider()
+
+                BrushEditorView(renderer: renderer)
+            }
+        }
+    }
+}
+
+struct BrushPresetList: View {
+    @ObservedObject var renderer: BrushRenderer
+
+    var body: some View {
+        let presets = Array(renderer.presets.enumerated())
+            .filter { $0.element.category == renderer.selectedBrushCategory }
+
+        ScrollView {
+            VStack(spacing: 6) {
+                ForEach(presets, id: \.element.id) { index, preset in
+                    BrushPresetRow(renderer: renderer, index: index, preset: preset)
+                }
+            }
+        }
+    }
+}
+
+struct BrushPresetRow: View {
+    @ObservedObject var renderer: BrushRenderer
+    let index: Int
+    let preset: BrushPreset
+
+    @State private var showOptions = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: { renderer.selectPreset(at: index) }) {
+                HStack(spacing: 10) {
+                    Image(nsImage: preset.thumbnail)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 42, height: 42)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(preset.name)
+                            .lineLimit(1)
+                        Text(preset.settings.isSmudge ? "Smudge" : "Brush")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if renderer.selectedPresetIndex == index {
+                        Image(systemName: "checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
                     }
                 }
+                .contentShape(Rectangle())
             }
-            .frame(height: 56)
+            .buttonStyle(.plain)
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Size: \(Int(renderer.maxBrushSize))")
-                    .font(.caption)
-                Slider(value: $renderer.maxBrushSize, in: 1...200)
+            Button(action: { showOptions.toggle() }) {
+                Label("Brush Options", systemImage: "ellipsis")
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Hardness: \(Int(renderer.hardness * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.hardness, in: 0...1)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .frame(width: 24)
+            .popover(isPresented: $showOptions, arrowEdge: .trailing) {
+                BrushPresetOptionsView(renderer: renderer, index: index, preset: preset)
+                    .padding()
+                    .frame(width: 240)
             }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(renderer.selectedPresetIndex == index ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Softness: \(Int(renderer.softness * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.softness, in: 0...1)
-            }
+struct BrushPresetOptionsView: View {
+    @ObservedObject var renderer: BrushRenderer
+    let index: Int
+    let preset: BrushPreset
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Spacing: \(Int(renderer.spacing * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.spacing, in: 0.02...0.5)
-            }
+    @State private var name: String = ""
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Scatter: \(Int(renderer.scatter * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.scatter, in: 0...1)
-            }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(preset.name)
+                .font(.headline)
+                .lineLimit(1)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Smoothing: \(Int(renderer.smoothing * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.smoothing, in: 0...0.9)
-            }
+            TextField("Name", text: $name)
+                .disabled(!preset.isUserEditable)
+                .onAppear { name = preset.name }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Flow: \(Int(renderer.flow * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.flow, in: 0.01...1.0)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Tilt Deform: \(Int(renderer.tiltInfluence * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.tiltInfluence, in: 0...1)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Rotation Jitter: \(Int(renderer.rotationJitter * 100))%")
-                    .font(.caption)
-                Slider(value: $renderer.rotationJitter, in: 0...1)
-            }
-
-            Picker("Rotation Mode", selection: $renderer.rotationMode) {
-                ForEach(RotationMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
+            HStack {
+                Button("Rename") {
+                    renderer.renamePreset(at: index, to: name)
                 }
-            }
-            .pickerStyle(.segmented)
+                .disabled(!preset.isUserEditable || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == preset.name)
 
-            if renderer.isSmudge {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Smudge: \(Int(renderer.smudgeStrength * 100))%")
-                        .font(.caption)
-                    Slider(value: $renderer.smudgeStrength, in: 0...1)
+                Button("Duplicate") {
+                    renderer.duplicatePreset(at: index)
                 }
             }
 
-            Divider()
-
-            Button("Save Brush Settings") {
+            Button("Save Current Settings") {
                 renderer.saveCurrentSettingsToSidecar()
             }
+            .disabled(renderer.selectedPresetIndex != index)
+
+            Divider()
+
+            Button(role: .destructive, action: { renderer.deletePreset(at: index) }) {
+                Label("Delete Brush", systemImage: "trash")
+            }
+            .disabled(!renderer.canDeletePreset(at: index))
+        }
+    }
+}
+
+struct BrushEditorView: View {
+    @ObservedObject var renderer: BrushRenderer
+
+    var body: some View {
+        DisclosureGroup("Brush Settings") {
+            VStack(alignment: .leading, spacing: 10) {
+                BrushSlider(title: "Size", value: $renderer.maxBrushSize, range: 1...200, format: { "\(Int($0))" })
+                BrushSlider(title: "Hardness", value: $renderer.hardness, range: 0...1, format: percentText)
+                BrushSlider(title: "Softness", value: $renderer.softness, range: 0...1, format: percentText)
+                BrushSlider(title: "Spacing", value: $renderer.spacing, range: 0.02...0.5, format: percentText)
+                BrushSlider(title: "Scatter", value: $renderer.scatter, range: 0...1, format: percentText)
+                BrushSlider(title: "Smoothing", value: $renderer.smoothing, range: 0...0.9, format: percentText)
+                BrushSlider(title: "Flow", value: $renderer.flow, range: 0.01...1.0, format: percentText)
+                BrushSlider(title: "Tilt Deform", value: $renderer.tiltInfluence, range: 0...1, format: percentText)
+                BrushSlider(title: "Rotation Jitter", value: $renderer.rotationJitter, range: 0...1, format: percentText)
+
+                Picker("Rotation Mode", selection: $renderer.rotationMode) {
+                    ForEach(RotationMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if renderer.isSmudge {
+                    BrushSlider(title: "Smudge", value: $renderer.smudgeStrength, range: 0...1, format: percentText)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func percentText(_ value: Float) -> String {
+        "\(Int(value * 100))%"
+    }
+}
+
+struct BrushSlider: View {
+    let title: String
+    @Binding var value: Float
+    let range: ClosedRange<Float>
+    let format: (Float) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(title): \(format(value))")
+                .font(.caption)
+            Slider(value: $value, in: range)
         }
     }
 }

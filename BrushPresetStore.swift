@@ -4,10 +4,13 @@ import Metal
 final class BrushPresetStore {
     private let device: MTLDevice
     private let fileManager: FileManager
+    private let brushesDirectoryOverride: URL?
+    private let builtInBrushNames: Set<String> = ["Default", "Soft Round", "Studio Pen", "Wet Paint", "Smudge"]
 
-    init(device: MTLDevice, fileManager: FileManager = .default) {
+    init(device: MTLDevice, fileManager: FileManager = .default, brushesDirectoryOverride: URL? = nil) {
         self.device = device
         self.fileManager = fileManager
+        self.brushesDirectoryOverride = brushesDirectoryOverride
     }
 
     func loadPresets() -> [BrushPreset] {
@@ -28,25 +31,91 @@ final class BrushPresetStore {
         return allPngs.compactMap { pngURL in
             guard let texture = loadTexture(from: pngURL),
                   let thumbnail = NSImage(contentsOf: pngURL) else { return nil }
+            let name = pngURL.deletingPathExtension().lastPathComponent
+            let sidecar = loadSidecar(from: sidecarURL(for: pngURL), fallbackName: name)
 
             return BrushPreset(
-                name: pngURL.deletingPathExtension().lastPathComponent,
+                name: name,
+                category: sidecar.category,
+                isUserEditable: sidecar.isUserCreated || !builtInBrushNames.contains(name),
                 texture: texture,
                 thumbnail: thumbnail,
-                settings: loadSettings(from: sidecarURL(for: pngURL))
+                settings: sidecar.settings
             )
         }
     }
 
     func saveSettings(_ settings: BrushSettings, for preset: BrushPreset) {
         let pngURL = brushesDirectoryURL().appendingPathComponent("\(preset.name).png")
+        saveSidecar(
+            BrushPresetSidecar(settings: settings, category: preset.category, isUserCreated: preset.isUserEditable),
+            to: sidecarURL(for: pngURL)
+        )
+    }
+
+    func duplicate(_ preset: BrushPreset) -> BrushPreset? {
+        let directory = brushesDirectoryURL()
+        let sourcePNG = directory.appendingPathComponent("\(preset.name).png")
+        let newName = uniqueName(base: "\(preset.name) Copy", in: directory)
+        let destinationPNG = directory.appendingPathComponent("\(newName).png")
+
+        do {
+            try fileManager.copyItem(at: sourcePNG, to: destinationPNG)
+            saveSidecar(
+                BrushPresetSidecar(settings: preset.settings, category: preset.category, isUserCreated: true),
+                to: sidecarURL(for: destinationPNG)
+            )
+            return loadPresets().first { $0.name == newName }
+        } catch {
+            return nil
+        }
+    }
+
+    func rename(_ preset: BrushPreset, to proposedName: String) -> Bool {
+        guard preset.isUserEditable else { return false }
+        guard let newName = sanitizedName(proposedName), newName != preset.name else { return false }
+
+        let directory = brushesDirectoryURL()
+        let destinationPNG = directory.appendingPathComponent("\(newName).png")
+        guard !fileManager.fileExists(atPath: destinationPNG.path) else { return false }
+
+        let sourcePNG = directory.appendingPathComponent("\(preset.name).png")
+        let sourceJSON = sidecarURL(for: sourcePNG)
+        let destinationJSON = sidecarURL(for: destinationPNG)
+
+        do {
+            try fileManager.moveItem(at: sourcePNG, to: destinationPNG)
+            if fileManager.fileExists(atPath: sourceJSON.path) {
+                try fileManager.moveItem(at: sourceJSON, to: destinationJSON)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func delete(_ preset: BrushPreset) -> Bool {
+        guard preset.isUserEditable else { return false }
+        let pngURL = brushesDirectoryURL().appendingPathComponent("\(preset.name).png")
         let jsonURL = sidecarURL(for: pngURL)
-        if let data = try? JSONEncoder().encode(settings) {
-            try? data.write(to: jsonURL)
+
+        do {
+            if fileManager.fileExists(atPath: pngURL.path) {
+                try fileManager.removeItem(at: pngURL)
+            }
+            if fileManager.fileExists(atPath: jsonURL.path) {
+                try fileManager.removeItem(at: jsonURL)
+            }
+            return true
+        } catch {
+            return false
         }
     }
 
     private func brushesDirectoryURL() -> URL {
+        if let brushesDirectoryOverride {
+            return brushesDirectoryOverride
+        }
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appDir = appSupport.appendingPathComponent("MetalBrushEngine", isDirectory: true)
         return appDir.appendingPathComponent("Brushes", isDirectory: true)
@@ -56,12 +125,28 @@ final class BrushPresetStore {
         pngURL.deletingPathExtension().appendingPathExtension("json")
     }
 
-    private func loadSettings(from url: URL) -> BrushSettings {
-        guard let data = try? Data(contentsOf: url),
-              let settings = try? JSONDecoder().decode(BrushSettings.self, from: data) else {
-            return BrushSettings()
+    private func loadSidecar(from url: URL, fallbackName: String) -> BrushPresetSidecar {
+        guard let data = try? Data(contentsOf: url) else {
+            return BrushPresetSidecar(settings: defaultSettings(for: fallbackName), category: defaultCategory(for: fallbackName), isUserCreated: false)
         }
-        return settings
+
+        if let sidecar = try? JSONDecoder().decode(BrushPresetSidecar.self, from: data) {
+            return sidecar
+        }
+
+        if let settings = try? JSONDecoder().decode(BrushSettings.self, from: data) {
+            return BrushPresetSidecar(settings: settings, category: defaultCategory(for: fallbackName), isUserCreated: !builtInBrushNames.contains(fallbackName))
+        }
+
+        return BrushPresetSidecar(settings: defaultSettings(for: fallbackName), category: defaultCategory(for: fallbackName), isUserCreated: false)
+    }
+
+    private func saveSidecar(_ sidecar: BrushPresetSidecar, to url: URL) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(sidecar) {
+            try? data.write(to: url)
+        }
     }
 
     private func loadTexture(from url: URL) -> MTLTexture? {
@@ -124,15 +209,24 @@ final class BrushPresetStore {
 
     private func ensureDefaultBrushesExist(in directory: URL) {
         let defaults: [(name: String, pixels: [UInt8], size: Int, settings: BrushSettings)] = [
-            ("Default", generateSoftRoundPixels(size: 256), 256, BrushSettings())
+            ("Default", generateSoftRoundPixels(size: 256, hardness: 0.3), 256, BrushSettings()),
+            ("Soft Round", generateSoftRoundPixels(size: 256, hardness: 0.2), 256, BrushSettings(spacing: 0.12, flow: 0.75, hardness: 0.35, softness: 0.25, rotationMode: .fixed)),
+            ("Studio Pen", generateSoftRoundPixels(size: 256, hardness: 0.75), 256, BrushSettings(spacing: 0.06, flow: 1.0, hardness: 0.82, softness: 0.0, rotationMode: .followStroke)),
+            ("Wet Paint", generateSoftRoundPixels(size: 256, hardness: 0.45), 256, BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)),
+            ("Smudge", generateSoftRoundPixels(size: 256, hardness: 0.35), 256, BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed))
         ]
 
         for item in defaults {
             let pngURL = directory.appendingPathComponent("\(item.name).png")
             let jsonURL = directory.appendingPathComponent("\(item.name).json")
-            savePNG(pixels: item.pixels, size: item.size, to: pngURL)
-            if let data = try? JSONEncoder().encode(item.settings) {
-                try? data.write(to: jsonURL)
+            if !fileManager.fileExists(atPath: pngURL.path) {
+                savePNG(pixels: item.pixels, size: item.size, to: pngURL)
+            }
+            if !fileManager.fileExists(atPath: jsonURL.path) {
+                saveSidecar(
+                    BrushPresetSidecar(settings: item.settings, category: defaultCategory(for: item.name), isUserCreated: false),
+                    to: jsonURL
+                )
             }
         }
     }
@@ -163,7 +257,7 @@ final class BrushPresetStore {
         try? pngData.write(to: url)
     }
 
-    private func generateSoftRoundPixels(size: Int) -> [UInt8] {
+    private func generateSoftRoundPixels(size: Int, hardness: Float = 0.3) -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: size * size * 4)
         let center = Float(size - 1) / 2.0
         let radius = center
@@ -174,7 +268,13 @@ final class BrushPresetStore {
                 let dy = Float(y) - center
                 let dist = sqrt(dx * dx + dy * dy)
                 let t = min(dist / radius, 1.0)
-                let alpha = exp(-t * t * 3.0)
+                let alpha: Float
+                if t < hardness {
+                    alpha = 1
+                } else {
+                    let falloff = (t - hardness) / max(0.01, 1 - hardness)
+                    alpha = exp(-falloff * falloff * 3.0)
+                }
 
                 let idx = (y * size + x) * 4
                 pixels[idx + 0] = 255
@@ -185,4 +285,56 @@ final class BrushPresetStore {
         }
         return pixels
     }
+
+    private func sanitizedName(_ value: String) -> String? {
+        let invalid = CharacterSet(charactersIn: "/:\\")
+        let cleaned = value
+            .components(separatedBy: invalid)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private func uniqueName(base: String, in directory: URL) -> String {
+        let cleanedBase = sanitizedName(base) ?? "Brush"
+        var candidate = cleanedBase
+        var suffix = 2
+        while fileManager.fileExists(atPath: directory.appendingPathComponent("\(candidate).png").path) {
+            candidate = "\(cleanedBase) \(suffix)"
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func defaultSettings(for name: String) -> BrushSettings {
+        switch name {
+        case "Studio Pen":
+            return BrushSettings(spacing: 0.06, flow: 1.0, hardness: 0.82)
+        case "Wet Paint":
+            return BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)
+        case "Smudge":
+            return BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)
+        default:
+            return BrushSettings()
+        }
+    }
+
+    private func defaultCategory(for name: String) -> BrushCategory {
+        switch name {
+        case "Studio Pen":
+            return .inking
+        case "Wet Paint":
+            return .painting
+        case "Smudge":
+            return .smudge
+        default:
+            return .sketching
+        }
+    }
+}
+
+private struct BrushPresetSidecar: Codable {
+    var settings: BrushSettings
+    var category: BrushCategory
+    var isUserCreated: Bool
 }

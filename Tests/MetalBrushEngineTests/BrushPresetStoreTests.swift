@@ -54,6 +54,70 @@ final class BrushPresetStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default.png").path))
     }
 
+    func testDuplicatePresetCreatesEditableCopyWithSettings() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+
+        let directory = temporaryBrushDirectory()
+        let store = BrushPresetStore(device: device, brushesDirectoryOverride: directory)
+        let defaultPreset = try XCTUnwrap(store.loadPresets().first { $0.name == "Default" })
+
+        let copy = try XCTUnwrap(store.duplicate(defaultPreset))
+
+        XCTAssertEqual(copy.name, "Default Copy")
+        XCTAssertTrue(copy.isUserEditable)
+        XCTAssertEqual(copy.category, defaultPreset.category)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default Copy.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default Copy.json").path))
+    }
+
+    func testRenamePresetMovesBrushFiles() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+
+        let directory = temporaryBrushDirectory()
+        let store = BrushPresetStore(device: device, brushesDirectoryOverride: directory)
+        let defaultPreset = try XCTUnwrap(store.loadPresets().first { $0.name == "Default" })
+        let copy = try XCTUnwrap(store.duplicate(defaultPreset))
+
+        XCTAssertTrue(store.rename(copy, to: "Pencil"))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default Copy.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Pencil.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Pencil.json").path))
+    }
+
+    func testDeletePresetRemovesBrushFiles() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+
+        let directory = temporaryBrushDirectory()
+        let store = BrushPresetStore(device: device, brushesDirectoryOverride: directory)
+        let defaultPreset = try XCTUnwrap(store.loadPresets().first { $0.name == "Default" })
+        let copy = try XCTUnwrap(store.duplicate(defaultPreset))
+
+        XCTAssertTrue(store.delete(copy))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default Copy.png").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default Copy.json").path))
+    }
+
+    func testBuiltInPresetCannotBeDeletedOrRenamed() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+
+        let directory = temporaryBrushDirectory()
+        let store = BrushPresetStore(device: device, brushesDirectoryOverride: directory)
+        let defaultPreset = try XCTUnwrap(store.loadPresets().first { $0.name == "Default" })
+
+        XCTAssertFalse(store.rename(defaultPreset, to: "Renamed"))
+        XCTAssertFalse(store.delete(defaultPreset))
+    }
+
     private func temporaryBrushDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("MetalBrushEngineTests", isDirectory: true)

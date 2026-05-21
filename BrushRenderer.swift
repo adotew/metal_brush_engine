@@ -54,6 +54,7 @@ class BrushRenderer: NSObject, ObservableObject {
     // MARK: - Brush Presets
     @Published var presets: [BrushPreset] = []
     @Published var selectedPresetIndex: Int = 0
+    @Published var selectedBrushCategory: BrushCategory = .sketching
     private var presetStore: BrushPresetStore!
 
     var activePreset: BrushPreset? {
@@ -313,13 +314,43 @@ class BrushRenderer: NSObject, ObservableObject {
     func selectPreset(at index: Int) {
         guard index >= 0 && index < presets.count else { return }
         selectedPresetIndex = index
+        selectedBrushCategory = presets[index].category
         apply(settings: presets[index].settings)
         objectWillChange.send()
     }
 
     func saveCurrentSettingsToSidecar() {
         guard let preset = activePreset else { return }
-        presetStore.saveSettings(currentBrushSettings(), for: preset)
+        let settings = currentBrushSettings()
+        presetStore.saveSettings(settings, for: preset)
+        presets[selectedPresetIndex].settings = settings
+        objectWillChange.send()
+    }
+
+    func duplicatePreset(at index: Int) {
+        guard index >= 0 && index < presets.count else { return }
+        guard let duplicated = presetStore.duplicate(presets[index]) else { return }
+        reloadBrushPresets(selecting: duplicated.name)
+    }
+
+    func renamePreset(at index: Int, to name: String) {
+        guard index >= 0 && index < presets.count else { return }
+        if presetStore.rename(presets[index], to: name) {
+            reloadBrushPresets(selecting: name)
+        }
+    }
+
+    func canDeletePreset(at index: Int) -> Bool {
+        index >= 0 && index < presets.count && presets[index].isUserEditable && presets.count > 1
+    }
+
+    func deletePreset(at index: Int) {
+        guard canDeletePreset(at: index) else { return }
+        let fallbackIndex = max(0, index - 1)
+        let fallbackName = presets.indices.contains(fallbackIndex) ? presets[fallbackIndex].name : nil
+        if presetStore.delete(presets[index]) {
+            reloadBrushPresets(selecting: fallbackName)
+        }
     }
 
     private func apply(settings: BrushSettings) {
@@ -359,6 +390,16 @@ class BrushRenderer: NSObject, ObservableObject {
             canvasSize: SIMD2<Float>(Float(canvasSize.width), Float(canvasSize.height))
         )
         brushEngine.updateState(state)
+    }
+
+    private func reloadBrushPresets(selecting name: String?) {
+        presets = presetStore.loadPresets()
+        if let name, let index = presets.firstIndex(where: { $0.name == name }) {
+            selectPreset(at: index)
+        } else if !presets.isEmpty {
+            selectPreset(at: min(selectedPresetIndex, presets.count - 1))
+        }
+        objectWillChange.send()
     }
 
     // MARK: - Snapshot / Undo / Redo
