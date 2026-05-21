@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var renderer = BrushRenderer()
     @State private var showBrushSettings = false
+    @State private var showLayers = false
 
     var body: some View {
         ZStack {
@@ -29,8 +30,13 @@ struct ContentView: View {
                 .disabled(!renderer.canRedo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
 
-                Button(action: { renderer.clearCanvas() }) {
-                    Label("Clear", systemImage: "trash")
+                Button(action: { showLayers.toggle() }) {
+                    Label("Layers", systemImage: "square.3.layers.3d")
+                }
+                .popover(isPresented: $showLayers, arrowEdge: .bottom) {
+                    LayersView(renderer: renderer)
+                        .padding()
+                        .frame(width: 280)
                 }
 
                 Button(action: { showBrushSettings.toggle() }) {
@@ -66,6 +72,130 @@ struct ContentView: View {
                 }
             }
         )
+    }
+}
+
+struct LayersView: View {
+    @ObservedObject var renderer: BrushRenderer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Layers")
+                    .font(.headline)
+
+                Spacer()
+
+                Button(action: { renderer.addLayer() }) {
+                    Label("Add Layer", systemImage: "plus")
+                }
+                .labelStyle(.iconOnly)
+                .disabled(renderer.layerInfos.count >= 5)
+            }
+
+            VStack(spacing: 6) {
+                ForEach(Array(renderer.layerInfos.enumerated()).reversed(), id: \.element.id) { index, layer in
+                    LayerRow(renderer: renderer, index: index, layer: layer)
+                }
+            }
+        }
+    }
+}
+
+struct LayerRow: View {
+    @ObservedObject var renderer: BrushRenderer
+    let index: Int
+    let layer: CanvasLayerInfo
+
+    @State private var showOptions = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: { renderer.toggleLayerVisibility(at: index) }) {
+                Label(layer.isVisible ? "Hide" : "Show", systemImage: layer.isVisible ? "eye" : "eye.slash")
+            }
+            .labelStyle(.iconOnly)
+            .frame(width: 24)
+
+            Button(action: { renderer.selectLayer(at: index) }) {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(layer.isVisible ? Color.primary.opacity(0.12) : Color.primary.opacity(0.04))
+                        .frame(width: 34, height: 34)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(layer.name)
+                            .lineLimit(1)
+                        Text("\(Int(layer.opacity * 100))%")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if renderer.selectedLayerIndex == index {
+                        Image(systemName: "checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { showOptions.toggle() }) {
+                Label("Layer Options", systemImage: "ellipsis")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .frame(width: 24)
+            .popover(isPresented: $showOptions, arrowEdge: .trailing) {
+                LayerOptionsView(renderer: renderer, index: index, layer: layer)
+                    .padding()
+                    .frame(width: 220)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(renderer.selectedLayerIndex == index ? Color.accentColor.opacity(0.16) : Color.primary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct LayerOptionsView: View {
+    @ObservedObject var renderer: BrushRenderer
+    let index: Int
+    let layer: CanvasLayerInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(layer.name)
+                .font(.headline)
+                .lineLimit(1)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Opacity: \(Int(layer.opacity * 100))%")
+                    .font(.caption)
+                Slider(
+                    value: Binding(
+                        get: { Double(layer.opacity) },
+                        set: { renderer.setLayerOpacity(Float($0), at: index) }
+                    ),
+                    in: 0...1
+                )
+            }
+
+            Divider()
+
+            Button(role: .destructive, action: { renderer.deleteLayer(at: index) }) {
+                Label("Delete Layer", systemImage: "trash")
+            }
+            .disabled(!renderer.canDeleteLayer(at: index))
+        }
     }
 }
 

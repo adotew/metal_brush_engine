@@ -137,10 +137,12 @@ vertex PassthroughVertexOut displayVertex(
 
 fragment float4 displayFragment(
     PassthroughVertexOut in [[stage_in]],
+    constant float &opacity [[buffer(0)]],
     texture2d<float> canvasTexture [[texture(0)]],
     sampler canvasSampler [[sampler(0)]]
 ) {
-    return canvasTexture.sample(canvasSampler, in.texCoord);
+    float4 color = canvasTexture.sample(canvasSampler, in.texCoord);
+    return float4(color.rgb * opacity, color.a * opacity);
 }
 
 // MARK: - Cursor Overlay Shader

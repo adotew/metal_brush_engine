@@ -8,6 +8,32 @@ struct CursorUniforms {
     var padding: Float = 0
 }
 
+struct CanvasLayerInfo: Identifiable {
+    let id: UUID
+    var name: String
+    var isVisible: Bool
+    var opacity: Float
+}
+
+private final class CanvasLayer {
+    let id = UUID()
+    var name: String
+    let texture: MTLTexture
+    let history: CanvasHistory
+    var isVisible = true
+    var opacity: Float = 1
+
+    init(name: String, texture: MTLTexture, history: CanvasHistory) {
+        self.name = name
+        self.texture = texture
+        self.history = history
+    }
+
+    var info: CanvasLayerInfo {
+        CanvasLayerInfo(id: id, name: name, isVisible: isVisible, opacity: opacity)
+    }
+}
+
 class BrushRenderer: NSObject, ObservableObject {
     // MARK: - Metal Resources
     var device: MTLDevice!
@@ -17,7 +43,6 @@ class BrushRenderer: NSObject, ObservableObject {
     var cursorPipelineState: MTLRenderPipelineState!
     var quadVertexBuffer: MTLBuffer!
     var instanceBuffer: MTLBuffer!
-    var canvasTexture: MTLTexture!
     var canvasBackupTexture: MTLTexture!
     var samplerState: MTLSamplerState!
     var displaySamplerState: MTLSamplerState!
@@ -38,10 +63,19 @@ class BrushRenderer: NSObject, ObservableObject {
 
     // MARK: - Rendering State
     private var brushEngine = BrushEngine()
-    private var canvasHistory: CanvasHistory?
+    private var layers: [CanvasLayer] = []
     private var newDabs: [DabInstance] = []
     private let maxDabs = 10000
     private var needsSnapshotSave = false
+    private let maxLayers = 5
+
+    @Published private(set) var layerInfos: [CanvasLayerInfo] = []
+    @Published var selectedLayerIndex: Int = 0
+
+    private var activeLayer: CanvasLayer? {
+        guard selectedLayerIndex >= 0 && selectedLayerIndex < layers.count else { return nil }
+        return layers[selectedLayerIndex]
+    }
 
     // MARK: - Published Brush Parameters
     @Published var brushColor: SIMD3<Float> = SIMD3<Float>(0.365, 0.251, 0.216) {
@@ -113,6 +147,23 @@ class BrushRenderer: NSObject, ObservableObject {
     }
 
     func createCanvasTextures() {
+        canvasBackupTexture = makeCanvasTexture()
+        layers = []
+
+        guard let baseTexture = makeCanvasTexture() else { return }
+        let baseLayer = CanvasLayer(
+            name: "Background",
+            texture: baseTexture,
+            history: CanvasHistory(device: device, canvasTexture: baseTexture, maxLevels: 20)
+        )
+        layers.append(baseLayer)
+        selectedLayerIndex = 0
+        clear(texture: baseTexture, color: MTLClearColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0), using: commandQueue)
+        baseLayer.history.saveSnapshot(from: baseTexture, using: commandQueue)
+        refreshLayerInfos()
+    }
+
+    private func makeCanvasTexture() -> MTLTexture? {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm,
             width: Int(canvasSize.width),
@@ -121,12 +172,7 @@ class BrushRenderer: NSObject, ObservableObject {
         )
         descriptor.usage = [.renderTarget, .shaderRead]
         descriptor.storageMode = .private
-
-        canvasTexture = device.makeTexture(descriptor: descriptor)
-        canvasBackupTexture = device.makeTexture(descriptor: descriptor)
-        canvasHistory = CanvasHistory(device: device, canvasTexture: canvasTexture, maxLevels: 20)
-        clearCanvas(skipSnapshot: true)
-        canvasHistory?.saveSnapshot(from: canvasTexture, using: commandQueue)
+        return device.makeTexture(descriptor: descriptor)
     }
 
     func setupBrushPipeline() {
@@ -165,6 +211,13 @@ class BrushRenderer: NSObject, ObservableObject {
         pipelineDescriptor.fragmentFunction = fragmentFunction
         pipelineDescriptor.vertexDescriptor = makeQuadVertexDescriptor()
         pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = .one
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
 
         do {
             displayPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
@@ -311,47 +364,55 @@ class BrushRenderer: NSObject, ObservableObject {
     // MARK: - Snapshot / Undo / Redo
     func undo() {
         guard !brushEngine.isStrokeActive else { return }
-        if canvasHistory?.undo(to: canvasTexture, using: commandQueue) == true {
+        guard let activeLayer else { return }
+        if activeLayer.history.undo(to: activeLayer.texture, using: commandQueue) {
             objectWillChange.send()
         }
     }
 
     func redo() {
         guard !brushEngine.isStrokeActive else { return }
-        if canvasHistory?.redo(to: canvasTexture, using: commandQueue) == true {
+        guard let activeLayer else { return }
+        if activeLayer.history.redo(to: activeLayer.texture, using: commandQueue) {
             objectWillChange.send()
         }
     }
 
     var canUndo: Bool {
-        (canvasHistory?.canUndo ?? false) && !brushEngine.isStrokeActive
+        (activeLayer?.history.canUndo ?? false) && !brushEngine.isStrokeActive
     }
 
     var canRedo: Bool {
-        (canvasHistory?.canRedo ?? false) && !brushEngine.isStrokeActive
+        (activeLayer?.history.canRedo ?? false) && !brushEngine.isStrokeActive
     }
 
     // MARK: - Canvas Operations
     func clearCanvas(skipSnapshot: Bool = false) {
-        guard let canvasTexture = canvasTexture else { return }
-
-        let commandBuffer = commandQueue.makeCommandBuffer()
-        let passDescriptor = MTLRenderPassDescriptor()
-        passDescriptor.colorAttachments[0].texture = canvasTexture
-        passDescriptor.colorAttachments[0].loadAction = .clear
-        passDescriptor.colorAttachments[0].storeAction = .store
-        passDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
-
-        let renderEncoder = commandBuffer?.makeRenderCommandEncoder(descriptor: passDescriptor)
-        renderEncoder?.endEncoding()
-        commandBuffer?.commit()
+        guard let activeLayer else { return }
+        let color = selectedLayerIndex == 0
+            ? MTLClearColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)
+            : MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        clear(texture: activeLayer.texture, color: color, using: commandQueue)
 
         newDabs.removeAll()
         brushEngine.resetStroke()
 
         if !skipSnapshot {
-            canvasHistory?.saveSnapshot(from: canvasTexture, using: commandQueue)
+            activeLayer.history.saveSnapshot(from: activeLayer.texture, using: commandQueue)
         }
+    }
+
+    private func clear(texture: MTLTexture, color: MTLClearColor, using commandQueue: MTLCommandQueue) {
+        let commandBuffer = commandQueue.makeCommandBuffer()
+        let passDescriptor = MTLRenderPassDescriptor()
+        passDescriptor.colorAttachments[0].texture = texture
+        passDescriptor.colorAttachments[0].loadAction = .clear
+        passDescriptor.colorAttachments[0].storeAction = .store
+        passDescriptor.colorAttachments[0].clearColor = color
+
+        let renderEncoder = commandBuffer?.makeRenderCommandEncoder(descriptor: passDescriptor)
+        renderEncoder?.endEncoding()
+        commandBuffer?.commit()
     }
 
     // MARK: - Stroke Lifecycle
@@ -377,7 +438,7 @@ class BrushRenderer: NSObject, ObservableObject {
     // MARK: - Rendering
     func render(to view: MTKView) {
         guard let drawable = view.currentDrawable else { return }
-        guard let canvasTexture = canvasTexture else { return }
+        guard let activeLayer else { return }
 
         let commandBuffer = commandQueue.makeCommandBuffer()!
 
@@ -385,11 +446,11 @@ class BrushRenderer: NSObject, ObservableObject {
         if needsSmudge && !newDabs.isEmpty {
             let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
             blitEncoder.copy(
-                from: canvasTexture,
+                from: activeLayer.texture,
                 sourceSlice: 0,
                 sourceLevel: 0,
                 sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                sourceSize: MTLSize(width: canvasTexture.width, height: canvasTexture.height, depth: 1),
+                sourceSize: MTLSize(width: activeLayer.texture.width, height: activeLayer.texture.height, depth: 1),
                 to: canvasBackupTexture,
                 destinationSlice: 0,
                 destinationLevel: 0,
@@ -403,7 +464,7 @@ class BrushRenderer: NSObject, ObservableObject {
             let instanceCount = min(newDabs.count, maxDabs)
 
             let canvasPass = MTLRenderPassDescriptor()
-            canvasPass.colorAttachments[0].texture = canvasTexture
+            canvasPass.colorAttachments[0].texture = activeLayer.texture
             canvasPass.colorAttachments[0].loadAction = .load
             canvasPass.colorAttachments[0].storeAction = .store
 
@@ -412,7 +473,7 @@ class BrushRenderer: NSObject, ObservableObject {
             renderEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
             renderEncoder.setVertexBuffer(instanceBuffer, offset: 0, index: 1)
 
-            var viewportSize = SIMD2<Float>(Float(canvasTexture.width), Float(canvasTexture.height))
+            var viewportSize = SIMD2<Float>(Float(activeLayer.texture.width), Float(activeLayer.texture.height))
             renderEncoder.setVertexBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.stride, index: 2)
 
             renderEncoder.setFragmentBytes(&viewportSize, length: MemoryLayout<SIMD2<Float>>.stride, index: 0)
@@ -429,8 +490,9 @@ class BrushRenderer: NSObject, ObservableObject {
         }
 
         if needsSnapshotSave {
-            canvasHistory?.saveSnapshot(from: canvasTexture, using: commandBuffer)
+            activeLayer.history.saveSnapshot(from: activeLayer.texture, using: commandBuffer)
             needsSnapshotSave = false
+            objectWillChange.send()
         }
 
         let displayPass = MTLRenderPassDescriptor()
@@ -444,9 +506,13 @@ class BrushRenderer: NSObject, ObservableObject {
         displayEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
         var displayUniforms = viewport.displayUniforms(viewSize: view.bounds.size)
         displayEncoder.setVertexBytes(&displayUniforms, length: MemoryLayout<DisplayUniforms>.stride, index: 1)
-        displayEncoder.setFragmentTexture(canvasTexture, index: 0)
         displayEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
-        displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        for layer in layers where layer.isVisible && layer.opacity > 0 {
+            var opacity = layer.opacity
+            displayEncoder.setFragmentBytes(&opacity, length: MemoryLayout<Float>.stride, index: 0)
+            displayEncoder.setFragmentTexture(layer.texture, index: 0)
+            displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        }
         displayEncoder.endEncoding()
 
         renderCursorIfNeeded(in: view, drawable: drawable, commandBuffer: commandBuffer)
@@ -484,7 +550,9 @@ class BrushRenderer: NSObject, ObservableObject {
         )
         cursorEncoder.setVertexBytes(&cursorUniforms, length: MemoryLayout<CursorUniforms>.stride, index: 1)
         cursorEncoder.setFragmentBytes(&cursorUniforms, length: MemoryLayout<CursorUniforms>.stride, index: 1)
-        cursorEncoder.setFragmentTexture(canvasTexture, index: 0)
+        if let texture = activeLayer?.texture {
+            cursorEncoder.setFragmentTexture(texture, index: 0)
+        }
         cursorEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
         cursorEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
         cursorEncoder.endEncoding()
@@ -528,5 +596,63 @@ class BrushRenderer: NSObject, ObservableObject {
     func fitViewportToView() {
         viewport.fitToView()
         objectWillChange.send()
+    }
+
+    // MARK: - Layers
+    func addLayer() {
+        guard layers.count < maxLayers, let texture = makeCanvasTexture() else { return }
+        let layer = CanvasLayer(
+            name: "Layer \(layers.count + 1)",
+            texture: texture,
+            history: CanvasHistory(device: device, canvasTexture: texture, maxLevels: 20)
+        )
+        clear(texture: texture, color: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0), using: commandQueue)
+        layer.history.saveSnapshot(from: texture, using: commandQueue)
+        layers.append(layer)
+        selectedLayerIndex = layers.count - 1
+        refreshLayerInfos()
+        objectWillChange.send()
+    }
+
+    func selectLayer(at index: Int) {
+        guard index >= 0 && index < layers.count else { return }
+        selectedLayerIndex = index
+        objectWillChange.send()
+    }
+
+    func toggleLayerVisibility(at index: Int) {
+        guard index >= 0 && index < layers.count else { return }
+        layers[index].isVisible.toggle()
+        refreshLayerInfos()
+        objectWillChange.send()
+    }
+
+    func setLayerOpacity(_ opacity: Float, at index: Int) {
+        guard index >= 0 && index < layers.count else { return }
+        layers[index].opacity = min(max(opacity, 0), 1)
+        refreshLayerInfos()
+        objectWillChange.send()
+    }
+
+    func canDeleteLayer(at index: Int) -> Bool {
+        index >= 0 && index < layers.count && layers.count > 1 && !brushEngine.isStrokeActive
+    }
+
+    func deleteLayer(at index: Int) {
+        guard canDeleteLayer(at: index) else { return }
+        layers.remove(at: index)
+        if selectedLayerIndex >= layers.count {
+            selectedLayerIndex = layers.count - 1
+        } else if selectedLayerIndex > index {
+            selectedLayerIndex -= 1
+        }
+        newDabs.removeAll()
+        brushEngine.resetStroke()
+        refreshLayerInfos()
+        objectWillChange.send()
+    }
+
+    private func refreshLayerInfos() {
+        layerInfos = layers.map(\.info)
     }
 }
