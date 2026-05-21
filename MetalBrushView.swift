@@ -3,9 +3,20 @@ import SwiftUI
 
 class BrushMTKView: MTKView {
     var brushRenderer: BrushRenderer?
-    var isDrawing = false
+    enum InteractionMode {
+        case idle
+        case drawing
+        case panning
+    }
+
+    var interactionMode: InteractionMode = .idle
     var lastPoint: CGPoint?
     var trackingArea: NSTrackingArea?
+    var isSpaceDown = false
+
+    private var isDrawing: Bool {
+        interactionMode == .drawing
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         return true
@@ -49,24 +60,61 @@ class BrushMTKView: MTKView {
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags
         let isCommand = flags.contains(.command)
-        guard isCommand, let chars = event.charactersIgnoringModifiers, chars == "z" else {
+        guard let chars = event.charactersIgnoringModifiers?.lowercased() else {
             super.keyDown(with: event)
             return
         }
-        if flags.contains(.shift) {
+
+        if chars == " " {
+            isSpaceDown = true
+            return
+        }
+
+        guard isCommand else {
+            super.keyDown(with: event)
+            return
+        }
+
+        switch chars {
+        case "z" where flags.contains(.shift):
             brushRenderer?.redo()
-        } else {
+        case "z":
             brushRenderer?.undo()
+        case "0":
+            brushRenderer?.fitViewportToView()
+        default:
+            super.keyDown(with: event)
+            return
         }
         setNeedsDisplay(bounds)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == " " {
+            isSpaceDown = false
+            if interactionMode == .panning {
+                interactionMode = .idle
+                lastPoint = nil
+            }
+            return
+        }
+        super.keyUp(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
+
+        if isSpaceDown {
+            interactionMode = .panning
+            lastPoint = point
+            brushRenderer?.showCursor = false
+            return
+        }
+
         guard brushRenderer?.isPointOverCanvas(point, in: self) == true else { return }
 
-        isDrawing = true
+        interactionMode = .drawing
         lastPoint = point
         brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
 
@@ -76,12 +124,20 @@ class BrushMTKView: MTKView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard isDrawing else { return }
         let point = convert(event.locationInWindow, from: nil)
-        brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
 
-        let brushPoint = createBrushPoint(from: event, location: point)
-        brushRenderer?.continueStroke(with: brushPoint)
+        switch interactionMode {
+        case .drawing:
+            brushRenderer?.cursorPosition = SIMD2<Float>(Float(point.x), Float(point.y))
+            let brushPoint = createBrushPoint(from: event, location: point)
+            brushRenderer?.continueStroke(with: brushPoint)
+        case .panning:
+            if let lastPoint {
+                brushRenderer?.panViewport(by: CGSize(width: point.x - lastPoint.x, height: point.y - lastPoint.y))
+            }
+        case .idle:
+            break
+        }
 
         lastPoint = point
         setNeedsDisplay(bounds)
@@ -91,8 +147,9 @@ class BrushMTKView: MTKView {
         if isDrawing {
             brushRenderer?.endStroke()
         }
-        isDrawing = false
+        interactionMode = .idle
         lastPoint = nil
+        brushRenderer?.showCursor = true
         setNeedsDisplay(bounds)
     }
 
@@ -103,6 +160,23 @@ class BrushMTKView: MTKView {
 
         let brushPoint = createBrushPoint(from: event, location: point)
         brushRenderer?.continueStroke(with: brushPoint)
+        setNeedsDisplay(bounds)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if event.modifierFlags.contains(.command) {
+            let factor = CGFloat(pow(1.01, Double(event.scrollingDeltaY)))
+            brushRenderer?.zoomViewport(by: factor, around: point, in: self)
+        } else {
+            brushRenderer?.panViewport(by: CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+        }
+        setNeedsDisplay(bounds)
+    }
+
+    override func magnify(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        brushRenderer?.zoomViewport(by: 1 + event.magnification, around: point, in: self)
         setNeedsDisplay(bounds)
     }
 

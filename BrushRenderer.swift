@@ -442,8 +442,8 @@ class BrushRenderer: NSObject, ObservableObject {
         let displayEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: displayPass)!
         displayEncoder.setRenderPipelineState(displayPipelineState)
         displayEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
-        var displayScale = viewport.displayScale(viewSize: view.bounds.size)
-        displayEncoder.setVertexBytes(&displayScale, length: MemoryLayout<SIMD2<Float>>.stride, index: 1)
+        var displayUniforms = viewport.displayUniforms(viewSize: view.bounds.size)
+        displayEncoder.setVertexBytes(&displayUniforms, length: MemoryLayout<DisplayUniforms>.stride, index: 1)
         displayEncoder.setFragmentTexture(canvasTexture, index: 0)
         displayEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
         displayEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
@@ -458,9 +458,8 @@ class BrushRenderer: NSObject, ObservableObject {
     private func renderCursorIfNeeded(in view: MTKView, drawable: CAMetalDrawable, commandBuffer: MTLCommandBuffer) {
         let viewW = Float(view.bounds.width)
         let viewH = Float(view.bounds.height)
-        let visibleCanvas = viewport.visibleCanvasFrame(viewSize: view.bounds.size)
         let cursorPoint = CGPoint(x: CGFloat(cursorPosition.x), y: CGFloat(cursorPosition.y))
-        guard showCursor && visibleCanvas.contains(cursorPoint) else { return }
+        guard showCursor && viewport.containsCanvasPoint(cursorPoint, viewSize: view.bounds.size) else { return }
 
         let cursorPass = MTLRenderPassDescriptor()
         cursorPass.colorAttachments[0].texture = drawable.texture
@@ -473,7 +472,7 @@ class BrushRenderer: NSObject, ObservableObject {
 
         let ndcCenterX = (cursorPosition.x / max(viewW, 1)) * 2 - 1
         let ndcCenterY = (cursorPosition.y / max(viewH, 1)) * 2 - 1
-        let canvasToViewScale = Float(visibleCanvas.width) / Float(canvasSize.width)
+        let canvasToViewScale = Float(viewport.fittedScale(viewSize: view.bounds.size) * viewport.zoom)
         let cursorRadiusPixels = maxBrushSize * canvasToViewScale
         let ndcRadiusX = cursorRadiusPixels / max(viewW, 1) * 2
         let ndcRadiusY = cursorRadiusPixels / max(viewH, 1) * 2
@@ -513,5 +512,21 @@ class BrushRenderer: NSObject, ObservableObject {
 
     func isPointOverCanvas(_ point: CGPoint, in view: MTKView) -> Bool {
         viewport.containsCanvasPoint(point, viewSize: view.bounds.size)
+    }
+
+    // MARK: - Viewport Controls
+    func panViewport(by delta: CGSize) {
+        viewport.panBy(delta)
+        objectWillChange.send()
+    }
+
+    func zoomViewport(by factor: CGFloat, around point: CGPoint, in view: MTKView) {
+        viewport.zoomBy(factor, around: point, viewSize: view.bounds.size)
+        objectWillChange.send()
+    }
+
+    func fitViewportToView() {
+        viewport.fitToView()
+        objectWillChange.send()
     }
 }
