@@ -18,6 +18,7 @@ struct BrushVertexOut {
     float4 color;
     float2 worldPos;
     float flow;
+    float opacity;
     float isEraser;
 };
 
@@ -32,6 +33,7 @@ struct DabInstance {
     float4 color;
     float2 tiltScale;
     float flow;
+    float opacity;
     float isEraser;
 };
 
@@ -64,6 +66,7 @@ vertex BrushVertexOut brushVertex(
     out.color = dab.color;
     out.worldPos = pixelPos;
     out.flow = dab.flow;
+    out.opacity = dab.opacity;
     out.isEraser = dab.isEraser;
 
     return out;
@@ -78,7 +81,7 @@ fragment float4 brushFragment(
 ) {
     float4 brushAlpha = brushStamp.sample(brushSampler, in.texCoord);
 
-    float alpha = brushAlpha.a * in.pressure * in.flow;
+    float alpha = brushAlpha.a * in.opacity * in.flow;
 
     // Edge falloff based on hardness
     float2 center = in.texCoord - 0.5;

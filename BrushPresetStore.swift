@@ -209,12 +209,12 @@ final class BrushPresetStore {
 
     private func ensureDefaultBrushesExist(in directory: URL) {
         let defaults: [(name: String, pixels: [UInt8], size: Int, settings: BrushSettings)] = [
-            ("Default", generateSoftRoundPixels(size: 256, hardness: 0.3), 256, BrushSettings()),
-            ("Soft Round", generateSoftRoundPixels(size: 256, hardness: 0.2), 256, BrushSettings(spacing: 0.12, flow: 0.75, hardness: 0.35, softness: 0.25, rotationMode: .fixed)),
-            ("Studio Pen", generateSoftRoundPixels(size: 256, hardness: 0.75), 256, BrushSettings(spacing: 0.06, flow: 1.0, hardness: 0.82, softness: 0.0, rotationMode: .followStroke)),
-            ("Wet Paint", generateSoftRoundPixels(size: 256, hardness: 0.45), 256, BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)),
-            ("Smudge", generateSoftRoundPixels(size: 256, hardness: 0.35), 256, BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)),
-            ("Soft Eraser", generateSoftRoundPixels(size: 256, hardness: 0.25), 256, BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, isEraser: true, rotationMode: .fixed))
+            ("Default", generateSoftRoundPixels(size: 256, hardness: 0.3), 256, BrushSettings(spacing: 0.1, flow: 0.82, hardness: 0.38, softness: 0.12, sizePressureCurve: 0.7, opacityPressureCurve: 1.35, minimumOpacity: 0.06, velocitySizeInfluence: 0.14, velocityOpacityInfluence: 0.1, startTaperLength: 12, endTaperLength: 22, streamline: 0.32)),
+            ("Soft Round", generateSoftRoundPixels(size: 256, hardness: 0.2), 256, BrushSettings(spacing: 0.1, flow: 0.68, hardness: 0.3, softness: 0.28, sizePressureCurve: 0.72, opacityPressureCurve: 1.45, minimumOpacity: 0.05, velocitySizeInfluence: 0.12, velocityOpacityInfluence: 0.12, startTaperLength: 14, endTaperLength: 24, streamline: 0.34, rotationMode: .fixed)),
+            ("Studio Pen", generateSoftRoundPixels(size: 256, hardness: 0.75), 256, BrushSettings(spacing: 0.05, flow: 1.0, hardness: 0.82, softness: 0.0, sizePressureCurve: 0.62, opacityPressureCurve: 0.9, minimumOpacity: 0.22, velocitySizeInfluence: 0.08, velocityOpacityInfluence: 0.03, startTaperLength: 8, endTaperLength: 14, streamline: 0.38, rotationMode: .followStroke)),
+            ("Wet Paint", generateSoftRoundPixels(size: 256, hardness: 0.45), 256, BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, opacityPressureCurve: 1.1, minimumOpacity: 0.12, startTaperLength: 4, endTaperLength: 10, streamline: 0.24, rotationJitter: 0.2)),
+            ("Smudge", generateSoftRoundPixels(size: 256, hardness: 0.35), 256, BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, startTaperLength: 0, endTaperLength: 0, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)),
+            ("Soft Eraser", generateSoftRoundPixels(size: 256, hardness: 0.25), 256, BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, opacityPressureCurve: 1.0, minimumOpacity: 0.18, startTaperLength: 8, endTaperLength: 16, isEraser: true, rotationMode: .fixed))
         ]
 
         for item in defaults {
@@ -310,15 +310,15 @@ final class BrushPresetStore {
     private func defaultSettings(for name: String) -> BrushSettings {
         switch name {
         case "Studio Pen":
-            return BrushSettings(spacing: 0.06, flow: 1.0, hardness: 0.82)
+            return BrushSettings(spacing: 0.05, flow: 1.0, hardness: 0.82, sizePressureCurve: 0.62, opacityPressureCurve: 0.9, minimumOpacity: 0.22, velocitySizeInfluence: 0.08, velocityOpacityInfluence: 0.03, startTaperLength: 8, endTaperLength: 14, streamline: 0.38)
         case "Wet Paint":
-            return BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)
+            return BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, opacityPressureCurve: 1.1, minimumOpacity: 0.12, startTaperLength: 4, endTaperLength: 10, streamline: 0.24, rotationJitter: 0.2)
         case "Smudge":
-            return BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)
+            return BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, startTaperLength: 0, endTaperLength: 0, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)
         case "Soft Eraser":
-            return BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, isEraser: true, rotationMode: .fixed)
+            return BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, opacityPressureCurve: 1.0, minimumOpacity: 0.18, startTaperLength: 8, endTaperLength: 16, isEraser: true, rotationMode: .fixed)
         default:
-            return BrushSettings()
+            return BrushSettings(spacing: 0.1, flow: 0.82, hardness: 0.38, softness: 0.12, sizePressureCurve: 0.7, opacityPressureCurve: 1.35, minimumOpacity: 0.06, velocitySizeInfluence: 0.14, velocityOpacityInfluence: 0.1, startTaperLength: 12, endTaperLength: 22, streamline: 0.32)
         }
     }
 

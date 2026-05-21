@@ -182,7 +182,7 @@ class BrushMTKView: MTKView {
 
     private func createBrushPoint(from event: NSEvent, location: CGPoint) -> BrushPoint {
         let rawPressure = Float(event.pressure)
-        let clampedPressure = max(rawPressure, 0.1)
+        let clampedPressure = rawPressure > 0 ? min(max(rawPressure, 0.02), 1.0) : 1.0
 
         let tilt = event.tilt
 
@@ -190,13 +190,11 @@ class BrushMTKView: MTKView {
         let rawPosition = brushRenderer?.normalizePoint(location, in: self) ?? .zero
         let normalizedPos = brushRenderer?.clampedCanvasPoint(rawPosition) ?? rawPosition
         let baseSize = brushRenderer?.maxBrushSize ?? 30.0
-        let minSize = brushRenderer?.minBrushSize ?? 2.0
-        let size = minSize + (baseSize - minSize) * clampedPressure
 
         return BrushPoint(
             position: normalizedPos,
             pressure: clampedPressure,
-            size: size,
+            size: baseSize,
             tiltX: Float(tilt.x),
             tiltY: Float(tilt.y),
             azimuth: 0,

@@ -92,6 +92,27 @@ class BrushRenderer: NSObject, ObservableObject {
     @Published var softness: Float = 0.0 {
         didSet { updateBrushEngineState() }
     }
+    @Published var sizePressureCurve: Float = 0.75 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var opacityPressureCurve: Float = 1.25 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var minimumOpacity: Float = 0.08 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var velocitySizeInfluence: Float = 0.12 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var velocityOpacityInfluence: Float = 0.08 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var startTaperLength: Float = 10.0 {
+        didSet { updateBrushEngineState() }
+    }
+    @Published var endTaperLength: Float = 18.0 {
+        didSet { updateBrushEngineState() }
+    }
     @Published var spacing: Float = 0.15 {
         didSet { updateBrushEngineState() }
     }
@@ -403,6 +424,14 @@ class BrushRenderer: NSObject, ObservableObject {
         scatter = settings.scatter
         hardness = settings.hardness
         softness = settings.softness
+        sizePressureCurve = settings.sizePressureCurve
+        opacityPressureCurve = settings.opacityPressureCurve
+        minimumOpacity = settings.minimumOpacity
+        velocitySizeInfluence = settings.velocitySizeInfluence
+        velocityOpacityInfluence = settings.velocityOpacityInfluence
+        startTaperLength = settings.startTaperLength
+        endTaperLength = settings.endTaperLength
+        smoothing = settings.streamline
         rotationJitter = settings.rotationJitter
         rotationMode = settings.rotationMode
         tiltInfluence = settings.tiltInfluence
@@ -419,6 +448,14 @@ class BrushRenderer: NSObject, ObservableObject {
             scatter: scatter,
             hardness: hardness,
             softness: softness,
+            sizePressureCurve: sizePressureCurve,
+            opacityPressureCurve: opacityPressureCurve,
+            minimumOpacity: minimumOpacity,
+            velocitySizeInfluence: velocitySizeInfluence,
+            velocityOpacityInfluence: velocityOpacityInfluence,
+            startTaperLength: startTaperLength,
+            endTaperLength: endTaperLength,
+            streamline: smoothing,
             rotationJitter: rotationJitter,
             tiltInfluence: tiltInfluence,
             smudgeStrength: smudgeStrength,
@@ -433,7 +470,8 @@ class BrushRenderer: NSObject, ObservableObject {
             settings: currentBrushSettings(),
             brushColor: brushColor,
             smoothing: smoothing,
-            canvasSize: SIMD2<Float>(Float(canvasSize.width), Float(canvasSize.height))
+            canvasSize: SIMD2<Float>(Float(canvasSize.width), Float(canvasSize.height)),
+            minimumBrushSize: minBrushSize
         )
         brushEngine.updateState(state)
     }

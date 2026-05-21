@@ -5,14 +5,22 @@ struct BrushEngineState {
     var brushColor = SIMD3<Float>(0.365, 0.251, 0.216)
     var smoothing: Float = 0.3
     var canvasSize = SIMD2<Float>(6000, 4000)
+    var minimumBrushSize: Float = 2.0
 }
 
 final class BrushEngine {
+    private struct QueuedDab {
+        var dab: DabInstance
+        var distance: Float
+    }
+
     private var state: BrushEngineState
     private var lastPlacedPoint: BrushPoint?
     private var lastSmoothedPoint: BrushPoint?
     private var hasPlacedDabs = false
     private var lastStrokeRotation: Float = 0
+    private var strokeDistance: Float = 0
+    private var queuedTailDabs: [QueuedDab] = []
     private let maxDabs: Int
 
     var isStrokeActive: Bool {
@@ -37,14 +45,21 @@ final class BrushEngine {
         lastPlacedPoint = point
         hasPlacedDabs = false
         lastStrokeRotation = point.rotation
-        return addDab(at: point, currentCount: 0).map { [$0] } ?? []
+        strokeDistance = 0
+        queuedTailDabs.removeAll()
+        return addDab(at: point, currentCount: 0, distanceAlongStroke: 0)
     }
 
     func continueStroke(with point: BrushPoint) -> [DabInstance] {
         guard let lastSmoothed = lastSmoothedPoint else { return [] }
         guard let lastPlaced = lastPlacedPoint else { return [] }
 
-        let stabilization = min(max(state.smoothing, 0), 0.95)
+        let segmentDistance = distance(from: lastSmoothed.position, to: point.position)
+        let deltaTime = max(point.timestamp - lastSmoothed.timestamp, 1.0 / 120.0)
+        let velocity = segmentDistance / deltaTime
+        let velocityAmount = min(max(velocity / 3200.0, 0), 1)
+        let streamline = min(max(max(state.smoothing, state.settings.streamline), 0), 0.95)
+        let stabilization = min(max(streamline * (0.68 - velocityAmount * 0.48), 0), 0.88)
         let inputWeight = 1.0 - stabilization
         let smoothedPosition = SIMD2<Float>(
             lastSmoothed.position.x * stabilization + point.position.x * inputWeight,
@@ -60,7 +75,7 @@ final class BrushEngine {
         let smoothedPoint = BrushPoint(
             position: smoothedPosition,
             pressure: lastSmoothed.pressure * stabilization + point.pressure * inputWeight,
-            size: lastSmoothed.size * stabilization + point.size * inputWeight,
+            size: point.size,
             tiltX: lastSmoothed.tiltX * stabilization + point.tiltX * inputWeight,
             tiltY: lastSmoothed.tiltY * stabilization + point.tiltY * inputWeight,
             azimuth: lastSmoothed.azimuth * stabilization + point.azimuth * inputWeight,
@@ -75,14 +90,17 @@ final class BrushEngine {
 
     func endStroke() -> [DabInstance] {
         var dabs: [DabInstance] = []
-        if !hasPlacedDabs, let last = lastPlacedPoint, let dab = addDab(at: last, currentCount: 0) {
-            dabs.append(dab)
+        if !hasPlacedDabs, let last = lastPlacedPoint {
+            dabs.append(contentsOf: addDab(at: last, currentCount: 0, distanceAlongStroke: strokeDistance))
         }
 
+        dabs.append(contentsOf: flushQueuedTailDabs())
         lastPlacedPoint = nil
         lastSmoothedPoint = nil
         hasPlacedDabs = false
         lastStrokeRotation = 0
+        strokeDistance = 0
+        queuedTailDabs.removeAll()
         return dabs
     }
 
@@ -91,6 +109,8 @@ final class BrushEngine {
         lastSmoothedPoint = nil
         hasPlacedDabs = false
         lastStrokeRotation = 0
+        strokeDistance = 0
+        queuedTailDabs.removeAll()
     }
 
     private func interpolateDabs(from start: BrushPoint, to end: BrushPoint) -> [DabInstance] {
@@ -106,9 +126,8 @@ final class BrushEngine {
             let t = stepSize / remaining
             let rotation = atan2(end.position.y - current.position.y, end.position.x - current.position.x)
             let point = interpolatedPoint(from: current, to: end, t: t, rotation: rotation)
-            if let dab = addDab(at: point, currentCount: dabs.count) {
-                dabs.append(dab)
-            }
+            strokeDistance += distance(from: current.position, to: point.position)
+            dabs.append(contentsOf: addDab(at: point, currentCount: dabs.count, distanceAlongStroke: strokeDistance))
 
             current = point
             remaining = distance(from: current.position, to: end.position)
@@ -117,8 +136,8 @@ final class BrushEngine {
         return dabs
     }
 
-    private func addDab(at point: BrushPoint, currentCount: Int) -> DabInstance? {
-        guard currentCount < maxDabs else { return nil }
+    private func addDab(at point: BrushPoint, currentCount: Int, distanceAlongStroke: Float) -> [DabInstance] {
+        guard currentCount < maxDabs else { return [] }
 
         var position = point.position
         if state.settings.scatter > 0 {
@@ -157,24 +176,100 @@ final class BrushEngine {
             }
         }
 
+        let pressure = min(max(point.pressure, 0.0), 1.0)
+        let sizeResponse = pow(max(pressure, 0.001), max(state.settings.sizePressureCurve, 0.05))
+        let opacityResponse = pow(max(pressure, 0.001), max(state.settings.opacityPressureCurve, 0.05))
+        let velocityAmount = velocityAmount(at: point)
+        let velocitySizeMultiplier = 1.0 - min(max(state.settings.velocitySizeInfluence, 0), 0.9) * velocityAmount
+        let velocityOpacityMultiplier = 1.0 - min(max(state.settings.velocityOpacityInfluence, 0), 0.9) * velocityAmount
+        let taperMultiplier = startTaperMultiplier(distanceAlongStroke)
+        let maxSize = max(point.size, state.minimumBrushSize)
+        let size = max(
+            state.minimumBrushSize,
+            (state.minimumBrushSize + (maxSize - state.minimumBrushSize) * sizeResponse) * velocitySizeMultiplier
+        )
+        let opacity = min(
+            max(state.settings.minimumOpacity + (1.0 - state.settings.minimumOpacity) * opacityResponse, 0),
+            1
+        ) * velocityOpacityMultiplier * taperMultiplier
         let smudge = state.settings.isSmudge ? state.settings.smudgeStrength : 0.0
         let dab = DabInstance(
             center: position,
-            size: point.size,
+            size: size,
             rotation: rotation,
-            pressure: point.pressure,
+            pressure: pressure,
             hardness: state.settings.hardness,
             softness: state.settings.softness,
             smudgeStrength: smudge,
             color: SIMD4<Float>(state.brushColor, 1.0),
             tiltScale: tiltScale,
             flow: state.settings.flow,
+            opacity: opacity,
             isEraser: state.settings.isEraser ? 1.0 : 0.0
         )
 
         lastPlacedPoint = point
         hasPlacedDabs = true
-        return dab
+        return queueOrEmit(dab, distance: distanceAlongStroke)
+    }
+
+    private func queueOrEmit(_ dab: DabInstance, distance: Float) -> [DabInstance] {
+        let taperLength = max(state.settings.endTaperLength, 0)
+        guard taperLength > 0 else { return [dab] }
+
+        queuedTailDabs.append(QueuedDab(dab: dab, distance: distance))
+
+        var emitted: [DabInstance] = []
+        while let first = queuedTailDabs.first,
+              let last = queuedTailDabs.last,
+              last.distance - first.distance > taperLength {
+            emitted.append(first.dab)
+            queuedTailDabs.removeFirst()
+        }
+        return emitted
+    }
+
+    private func flushQueuedTailDabs() -> [DabInstance] {
+        let taperLength = max(state.settings.endTaperLength, 0)
+        defer { queuedTailDabs.removeAll() }
+
+        guard taperLength > 0 else {
+            return queuedTailDabs.map(\.dab)
+        }
+
+        if strokeDistance < 1.0, var tap = queuedTailDabs.first?.dab {
+            tap.opacity *= 0.45
+            tap.size = max(state.minimumBrushSize, tap.size * 0.7)
+            return [tap]
+        }
+
+        return queuedTailDabs.map { queued in
+            var dab = queued.dab
+            let distanceToEnd = max(strokeDistance - queued.distance, 0)
+            let multiplier = smoothStep(edge0: 0, edge1: taperLength, value: distanceToEnd)
+            dab.opacity *= multiplier
+            dab.size = max(state.minimumBrushSize, dab.size * max(multiplier, 0.35))
+            return dab
+        }
+    }
+
+    private func startTaperMultiplier(_ distance: Float) -> Float {
+        let taperLength = max(state.settings.startTaperLength, 0)
+        guard taperLength > 0 else { return 1 }
+        return max(0.18, smoothStep(edge0: 0, edge1: taperLength, value: distance))
+    }
+
+    private func velocityAmount(at point: BrushPoint) -> Float {
+        guard let lastPlacedPoint else { return 0 }
+        let delta = distance(from: lastPlacedPoint.position, to: point.position)
+        let deltaTime = max(point.timestamp - lastPlacedPoint.timestamp, 1.0 / 120.0)
+        return min(max((delta / deltaTime) / 3200.0, 0), 1)
+    }
+
+    private func smoothStep(edge0: Float, edge1: Float, value: Float) -> Float {
+        guard edge0 != edge1 else { return value < edge0 ? 0 : 1 }
+        let x = min(max((value - edge0) / (edge1 - edge0), 0), 1)
+        return x * x * (3 - 2 * x)
     }
 
     private func distance(from start: SIMD2<Float>, to end: SIMD2<Float>) -> Float {

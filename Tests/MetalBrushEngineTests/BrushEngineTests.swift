@@ -9,8 +9,9 @@ final class BrushEngineTests: XCTestCase {
         XCTAssertEqual(dabs.count, 1)
         XCTAssertEqual(dabs[0].center.x, 20, accuracy: 0.001)
         XCTAssertEqual(dabs[0].center.y, 30, accuracy: 0.001)
-        XCTAssertEqual(dabs[0].size, 12, accuracy: 0.001)
+        XCTAssertEqual(dabs[0].size, 9.5, accuracy: 0.001)
         XCTAssertEqual(dabs[0].pressure, 0.75, accuracy: 0.001)
+        XCTAssertEqual(dabs[0].opacity, 0.75, accuracy: 0.001)
     }
 
     func testSpacingProducesStableDabCountsForEquivalentSlowAndFastStrokes() {
@@ -75,6 +76,75 @@ final class BrushEngineTests: XCTestCase {
         XCTAssertEqual(dabs.first?.isEraser ?? 0, 1, accuracy: 0.001)
     }
 
+    func testPressureCurveChangesSizeAndOpacityMonotonically() {
+        var state = makeState()
+        state.settings.sizePressureCurve = 0.5
+        state.settings.opacityPressureCurve = 2.0
+        state.settings.minimumOpacity = 0.1
+        let engine = BrushEngine(state: state)
+
+        let light = engine.startStroke(with: point(x: 20, y: 30, size: 20, pressure: 0.25))
+        _ = engine.endStroke()
+        let heavy = engine.startStroke(with: point(x: 40, y: 30, size: 20, pressure: 1.0))
+
+        XCTAssertLessThan(light[0].size, heavy[0].size)
+        XCTAssertLessThan(light[0].opacity, heavy[0].opacity)
+        XCTAssertGreaterThan(light[0].opacity, 0.1)
+    }
+
+    func testStartTaperReducesInitialDabOpacity() {
+        var state = makeState()
+        state.settings.startTaperLength = 20
+        let engine = BrushEngine(state: state)
+
+        let dabs = engine.startStroke(with: point(x: 20, y: 30, size: 12, pressure: 1))
+
+        XCTAssertEqual(dabs[0].opacity, 0.18, accuracy: 0.001)
+    }
+
+    func testEndTaperFadesQueuedTailDabs() {
+        var state = makeState(spacing: 0.25, smoothing: 0)
+        state.settings.endTaperLength = 20
+        let engine = BrushEngine(state: state)
+
+        _ = engine.startStroke(with: point(x: 0, y: 0, size: 12, pressure: 1, timestamp: 0))
+        _ = engine.continueStroke(with: point(x: 60, y: 0, size: 12, pressure: 1, timestamp: 0.2))
+        let tail = engine.endStroke()
+
+        XCTAssertFalse(tail.isEmpty)
+        XCTAssertLessThan(tail.last?.opacity ?? 1, tail.first?.opacity ?? 0)
+    }
+
+    func testStreamlineSmoothsJitterWithoutStoppingForwardMotion() {
+        let rawEngine = BrushEngine(state: makeState(spacing: 0.2, smoothing: 0))
+        _ = rawEngine.startStroke(with: point(x: 0, y: 0, size: 10, timestamp: 0))
+        let rawDabs = rawEngine.continueStroke(with: point(x: 60, y: 20, size: 10, timestamp: 0.3))
+
+        let streamlinedEngine = BrushEngine(state: makeState(spacing: 0.2, smoothing: 0.8))
+        _ = streamlinedEngine.startStroke(with: point(x: 0, y: 0, size: 10, timestamp: 0))
+        let streamlinedDabs = streamlinedEngine.continueStroke(with: point(x: 60, y: 20, size: 10, timestamp: 0.3))
+
+        XCTAssertLessThan(streamlinedDabs.last?.center.y ?? 20, rawDabs.last?.center.y ?? 0)
+        XCTAssertGreaterThan(streamlinedDabs.last?.center.x ?? 0, 25)
+    }
+
+    func testVelocityInfluenceThinsAndLightensFastStrokes() {
+        var state = makeState(spacing: 1.0, smoothing: 0)
+        state.settings.velocitySizeInfluence = 0.5
+        state.settings.velocityOpacityInfluence = 0.5
+
+        let slowEngine = BrushEngine(state: state)
+        _ = slowEngine.startStroke(with: point(x: 0, y: 0, size: 20, timestamp: 0))
+        let slow = slowEngine.continueStroke(with: point(x: 40, y: 0, size: 20, timestamp: 1.0))
+
+        let fastEngine = BrushEngine(state: state)
+        _ = fastEngine.startStroke(with: point(x: 0, y: 0, size: 20, timestamp: 0))
+        let fast = fastEngine.continueStroke(with: point(x: 40, y: 0, size: 20, timestamp: 0.02))
+
+        XCTAssertLessThan(fast.last?.size ?? 20, slow.last?.size ?? 0)
+        XCTAssertLessThan(fast.last?.opacity ?? 1, slow.last?.opacity ?? 0)
+    }
+
     private func makeState(
         spacing: Float = 0.5,
         rotationMode: RotationMode = .followStroke,
@@ -84,13 +154,22 @@ final class BrushEngineTests: XCTestCase {
         settings.spacing = spacing
         settings.rotationMode = rotationMode
         settings.scatter = 0
+        settings.sizePressureCurve = 1
+        settings.opacityPressureCurve = 1
+        settings.minimumOpacity = 0
+        settings.velocitySizeInfluence = 0
+        settings.velocityOpacityInfluence = 0
+        settings.startTaperLength = 0
+        settings.endTaperLength = 0
+        settings.streamline = smoothing
         settings.rotationJitter = 0
         settings.tiltInfluence = 0
         return BrushEngineState(
             settings: settings,
             brushColor: SIMD3<Float>(0.1, 0.2, 0.3),
             smoothing: smoothing,
-            canvasSize: SIMD2<Float>(2000, 1000)
+            canvasSize: SIMD2<Float>(2000, 1000),
+            minimumBrushSize: 2
         )
     }
 
@@ -99,7 +178,8 @@ final class BrushEngineTests: XCTestCase {
         y: Float,
         size: Float = 10,
         pressure: Float = 1,
-        rotation: Float = 0
+        rotation: Float = 0,
+        timestamp: Float = 0
     ) -> BrushPoint {
         BrushPoint(
             position: SIMD2<Float>(x, y),
@@ -108,7 +188,7 @@ final class BrushEngineTests: XCTestCase {
             tiltX: 0,
             tiltY: 0,
             azimuth: 0,
-            timestamp: 0,
+            timestamp: timestamp,
             rotation: rotation
         )
     }

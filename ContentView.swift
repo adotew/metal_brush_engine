@@ -535,8 +535,15 @@ struct BrushEditorView: View {
                 BrushSlider(title: "Softness", value: $renderer.softness, range: 0...1, format: percentText)
                 BrushSlider(title: "Spacing", value: $renderer.spacing, range: 0.02...0.5, format: percentText)
                 BrushSlider(title: "Scatter", value: $renderer.scatter, range: 0...1, format: percentText)
-                BrushSlider(title: "Smoothing", value: $renderer.smoothing, range: 0...0.9, format: percentText)
+                BrushSlider(title: "Streamline", value: $renderer.smoothing, range: 0...0.9, format: percentText)
                 BrushSlider(title: "Flow", value: $renderer.flow, range: 0.01...1.0, format: percentText)
+                BrushSlider(title: "Minimum Opacity", value: $renderer.minimumOpacity, range: 0...0.5, format: percentText)
+                BrushSlider(title: "Pressure", value: $renderer.sizePressureCurve, range: 0.25...2.0, format: decimalText)
+                BrushSlider(title: "Opacity Pressure", value: $renderer.opacityPressureCurve, range: 0.25...2.5, format: decimalText)
+                BrushSlider(title: "Speed Size", value: $renderer.velocitySizeInfluence, range: 0...0.6, format: percentText)
+                BrushSlider(title: "Speed Opacity", value: $renderer.velocityOpacityInfluence, range: 0...0.6, format: percentText)
+                BrushSlider(title: "Start Taper", value: $renderer.startTaperLength, range: 0...80, format: pixelText)
+                BrushSlider(title: "End Taper", value: $renderer.endTaperLength, range: 0...100, format: pixelText)
                 BrushSlider(title: "Tilt Deform", value: $renderer.tiltInfluence, range: 0...1, format: percentText)
                 BrushSlider(title: "Rotation Jitter", value: $renderer.rotationJitter, range: 0...1, format: percentText)
 
@@ -559,6 +566,14 @@ struct BrushEditorView: View {
 
     private func percentText(_ value: Float) -> String {
         "\(Int(value * 100))%"
+    }
+
+    private func decimalText(_ value: Float) -> String {
+        String(format: "%.2f", value)
+    }
+
+    private func pixelText(_ value: Float) -> String {
+        "\(Int(value)) px"
     }
 }
 
