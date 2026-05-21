@@ -39,6 +39,7 @@ class BrushRenderer: NSObject, ObservableObject {
     var device: MTLDevice!
     var commandQueue: MTLCommandQueue!
     var brushPipelineState: MTLRenderPipelineState!
+    var eraserPipelineState: MTLRenderPipelineState!
     var displayPipelineState: MTLRenderPipelineState!
     var cursorPipelineState: MTLRenderPipelineState!
     var quadVertexBuffer: MTLBuffer!
@@ -117,6 +118,9 @@ class BrushRenderer: NSObject, ObservableObject {
     @Published var isSmudge: Bool = false {
         didSet { updateBrushEngineState() }
     }
+    @Published var isEraser: Bool = false {
+        didSet { updateBrushEngineState() }
+    }
 
     // MARK: - Cursor
     var cursorPosition: SIMD2<Float> = .zero
@@ -138,6 +142,7 @@ class BrushRenderer: NSObject, ObservableObject {
 
         createCanvasTextures()
         setupBrushPipeline()
+        setupEraserPipeline()
         setupDisplayPipeline()
         setupCursorPipeline()
         setupQuadBuffer()
@@ -199,6 +204,32 @@ class BrushRenderer: NSObject, ObservableObject {
             brushPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
         } catch {
             fatalError("Failed to create brush pipeline: \(error)")
+        }
+    }
+
+    func setupEraserPipeline() {
+        let library = device.makeDefaultLibrary()
+        let vertexFunction = library?.makeFunction(name: "brushVertex")
+        let fragmentFunction = library?.makeFunction(name: "brushFragment")
+
+        let pipelineDescriptor = MTLRenderPipelineDescriptor()
+        pipelineDescriptor.vertexFunction = vertexFunction
+        pipelineDescriptor.fragmentFunction = fragmentFunction
+        pipelineDescriptor.vertexDescriptor = makeQuadVertexDescriptor()
+        pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+
+        pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
+        pipelineDescriptor.colorAttachments[0].rgbBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].alphaBlendOperation = .add
+        pipelineDescriptor.colorAttachments[0].sourceRGBBlendFactor = .zero
+        pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .zero
+        pipelineDescriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+
+        do {
+            eraserPipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+        } catch {
+            fatalError("Failed to create eraser pipeline: \(error)")
         }
     }
 
@@ -364,6 +395,7 @@ class BrushRenderer: NSObject, ObservableObject {
         tiltInfluence = settings.tiltInfluence
         smudgeStrength = settings.smudgeStrength
         isSmudge = settings.isSmudge
+        isEraser = settings.isEraser
         updateBrushEngineState()
     }
 
@@ -378,6 +410,7 @@ class BrushRenderer: NSObject, ObservableObject {
             tiltInfluence: tiltInfluence,
             smudgeStrength: smudgeStrength,
             isSmudge: isSmudge,
+            isEraser: isEraser,
             rotationMode: rotationMode
         )
     }
@@ -482,6 +515,7 @@ class BrushRenderer: NSObject, ObservableObject {
         guard let activeLayer else { return }
 
         let commandBuffer = commandQueue.makeCommandBuffer()!
+        prepareDabsForRendering(onBackgroundLayer: selectedLayerIndex == 0)
 
         let needsSmudge = newDabs.contains { $0.smudgeStrength > 0 }
         if needsSmudge && !newDabs.isEmpty {
@@ -510,7 +544,8 @@ class BrushRenderer: NSObject, ObservableObject {
             canvasPass.colorAttachments[0].storeAction = .store
 
             let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: canvasPass)!
-            renderEncoder.setRenderPipelineState(brushPipelineState)
+            let isEraserStroke = newDabs.allSatisfy { $0.isEraser > 0 }
+            renderEncoder.setRenderPipelineState(isEraserStroke ? eraserPipelineState : brushPipelineState)
             renderEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
             renderEncoder.setVertexBuffer(instanceBuffer, offset: 0, index: 1)
 
@@ -560,6 +595,17 @@ class BrushRenderer: NSObject, ObservableObject {
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    private func prepareDabsForRendering(onBackgroundLayer: Bool) {
+        guard !newDabs.isEmpty else { return }
+        for index in newDabs.indices where newDabs[index].isEraser > 0 {
+            newDabs[index].smudgeStrength = 0
+            if onBackgroundLayer {
+                newDabs[index].color = SIMD4<Float>(0.5, 0.5, 0.5, 1.0)
+                newDabs[index].isEraser = 0
+            }
+        }
     }
 
     private func renderCursorIfNeeded(in view: MTKView, drawable: CAMetalDrawable, commandBuffer: MTLCommandBuffer) {

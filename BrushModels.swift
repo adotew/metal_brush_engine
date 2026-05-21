@@ -138,5 +138,5 @@ struct DabInstance {
     var color: SIMD4<Float>
     var tiltScale: SIMD2<Float>
     var flow: Float
-    var _pad: Float = 0
+    var isEraser: Float
 }

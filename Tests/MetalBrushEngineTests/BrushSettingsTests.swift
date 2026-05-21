@@ -23,6 +23,7 @@ final class BrushSettingsTests: XCTestCase {
         XCTAssertEqual(settings.tiltInfluence, 0.5, accuracy: 0.001)
         XCTAssertEqual(settings.smudgeStrength, 0.7, accuracy: 0.001)
         XCTAssertFalse(settings.isSmudge)
+        XCTAssertFalse(settings.isEraser)
     }
 
     func testEncodingPreservesExistingSidecarShape() throws {
@@ -36,6 +37,7 @@ final class BrushSettingsTests: XCTestCase {
             tiltInfluence: 0.6,
             smudgeStrength: 0.9,
             isSmudge: true,
+            isEraser: true,
             rotationMode: .random
         )
 
@@ -47,5 +49,6 @@ final class BrushSettingsTests: XCTestCase {
         XCTAssertEqual(object["scatter"] as? Double ?? -1, 0.1, accuracy: 0.001)
         XCTAssertEqual(object["rotationMode"] as? Int, RotationMode.random.rawValue)
         XCTAssertEqual(object["isSmudge"] as? Bool, true)
+        XCTAssertEqual(object["isEraser"] as? Bool, true)
     }
 }

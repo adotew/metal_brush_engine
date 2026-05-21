@@ -18,6 +18,11 @@ struct ContentView: View {
                 ColorPicker("Color", selection: colorBinding)
                     .labelsHidden()
 
+                Button(action: { renderer.isEraser.toggle() }) {
+                    Label(renderer.isEraser ? "Use Brush" : "Use Eraser", systemImage: renderer.isEraser ? "paintbrush.pointed" : "eraser")
+                }
+                .keyboardShortcut("e", modifiers: [])
+
                 Button(action: { renderer.undo() }) {
                     Label("Undo", systemImage: "arrow.uturn.backward")
                 }
@@ -344,7 +349,7 @@ struct BrushPresetRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(preset.name)
                             .lineLimit(1)
-                        Text(preset.settings.isSmudge ? "Smudge" : "Brush")
+                        Text(preset.settings.isEraser ? "Eraser" : (preset.settings.isSmudge ? "Smudge" : "Brush"))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -438,6 +443,8 @@ struct BrushEditorView: View {
                 BrushSlider(title: "Flow", value: $renderer.flow, range: 0.01...1.0, format: percentText)
                 BrushSlider(title: "Tilt Deform", value: $renderer.tiltInfluence, range: 0...1, format: percentText)
                 BrushSlider(title: "Rotation Jitter", value: $renderer.rotationJitter, range: 0...1, format: percentText)
+
+                Toggle("Eraser", isOn: $renderer.isEraser)
 
                 Picker("Rotation Mode", selection: $renderer.rotationMode) {
                     ForEach(RotationMode.allCases) { mode in

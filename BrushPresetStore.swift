@@ -5,7 +5,7 @@ final class BrushPresetStore {
     private let device: MTLDevice
     private let fileManager: FileManager
     private let brushesDirectoryOverride: URL?
-    private let builtInBrushNames: Set<String> = ["Default", "Soft Round", "Studio Pen", "Wet Paint", "Smudge"]
+    private let builtInBrushNames: Set<String> = ["Default", "Soft Round", "Studio Pen", "Wet Paint", "Smudge", "Soft Eraser"]
 
     init(device: MTLDevice, fileManager: FileManager = .default, brushesDirectoryOverride: URL? = nil) {
         self.device = device
@@ -213,7 +213,8 @@ final class BrushPresetStore {
             ("Soft Round", generateSoftRoundPixels(size: 256, hardness: 0.2), 256, BrushSettings(spacing: 0.12, flow: 0.75, hardness: 0.35, softness: 0.25, rotationMode: .fixed)),
             ("Studio Pen", generateSoftRoundPixels(size: 256, hardness: 0.75), 256, BrushSettings(spacing: 0.06, flow: 1.0, hardness: 0.82, softness: 0.0, rotationMode: .followStroke)),
             ("Wet Paint", generateSoftRoundPixels(size: 256, hardness: 0.45), 256, BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)),
-            ("Smudge", generateSoftRoundPixels(size: 256, hardness: 0.35), 256, BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed))
+            ("Smudge", generateSoftRoundPixels(size: 256, hardness: 0.35), 256, BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)),
+            ("Soft Eraser", generateSoftRoundPixels(size: 256, hardness: 0.25), 256, BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, isEraser: true, rotationMode: .fixed))
         ]
 
         for item in defaults {
@@ -314,6 +315,8 @@ final class BrushPresetStore {
             return BrushSettings(spacing: 0.08, flow: 0.55, scatter: 0.06, hardness: 0.42, softness: 0.2, rotationJitter: 0.2)
         case "Smudge":
             return BrushSettings(spacing: 0.04, flow: 0.45, hardness: 0.32, softness: 0.35, smudgeStrength: 0.82, isSmudge: true, rotationMode: .fixed)
+        case "Soft Eraser":
+            return BrushSettings(spacing: 0.1, flow: 0.9, hardness: 0.28, softness: 0.2, isEraser: true, rotationMode: .fixed)
         default:
             return BrushSettings()
         }

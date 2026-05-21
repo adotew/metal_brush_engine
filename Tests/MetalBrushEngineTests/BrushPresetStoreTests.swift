@@ -18,6 +18,24 @@ final class BrushPresetStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Default.json").path))
     }
 
+    func testLoadPresetsCreatesBuiltInEraserPresetWhenMissing() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("Metal device unavailable")
+        }
+
+        let directory = temporaryBrushDirectory()
+        let store = BrushPresetStore(device: device, brushesDirectoryOverride: directory)
+
+        let presets = store.loadPresets()
+        let eraser = try XCTUnwrap(presets.first { $0.name == "Soft Eraser" })
+
+        XCTAssertTrue(eraser.settings.isEraser)
+        XCTAssertFalse(eraser.settings.isSmudge)
+        XCTAssertFalse(eraser.isUserEditable)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Soft Eraser.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Soft Eraser.json").path))
+    }
+
     func testLoadPresetsDoesNotOverwriteExistingDefaultSidecars() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw XCTSkip("Metal device unavailable")

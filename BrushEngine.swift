@@ -168,7 +168,8 @@ final class BrushEngine {
             smudgeStrength: smudge,
             color: SIMD4<Float>(state.brushColor, 1.0),
             tiltScale: tiltScale,
-            flow: state.settings.flow
+            flow: state.settings.flow,
+            isEraser: state.settings.isEraser ? 1.0 : 0.0
         )
 
         lastPlacedPoint = point

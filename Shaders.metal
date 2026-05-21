@@ -18,6 +18,7 @@ struct BrushVertexOut {
     float4 color;
     float2 worldPos;
     float flow;
+    float isEraser;
 };
 
 struct DabInstance {
@@ -31,7 +32,7 @@ struct DabInstance {
     float4 color;
     float2 tiltScale;
     float flow;
-    float _pad;
+    float isEraser;
 };
 
 vertex BrushVertexOut brushVertex(
@@ -63,6 +64,7 @@ vertex BrushVertexOut brushVertex(
     out.color = dab.color;
     out.worldPos = pixelPos;
     out.flow = dab.flow;
+    out.isEraser = dab.isEraser;
 
     return out;
 }

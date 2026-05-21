@@ -65,6 +65,16 @@ final class BrushEngineTests: XCTestCase {
         XCTAssertEqual(dabs.count, 12)
     }
 
+    func testEraserSettingsMarkGeneratedDabs() {
+        var state = makeState()
+        state.settings.isEraser = true
+        let engine = BrushEngine(state: state)
+
+        let dabs = engine.startStroke(with: point(x: 20, y: 30, size: 12))
+
+        XCTAssertEqual(dabs.first?.isEraser ?? 0, 1, accuracy: 0.001)
+    }
+
     private func makeState(
         spacing: Float = 0.5,
         rotationMode: RotationMode = .followStroke,
