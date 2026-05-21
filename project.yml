@@ -10,6 +10,7 @@ targets:
       - BrushEngine.swift
       - CanvasViewport.swift
       - BrushPresetStore.swift
+      - CanvasDocumentStore.swift
       - CanvasHistory.swift
       - ContentView.swift
       - MetalBrushView.swift

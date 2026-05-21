@@ -1,9 +1,13 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var renderer = BrushRenderer()
     @State private var showBrushLibrary = false
     @State private var showLayers = false
+    @State private var documentURL: URL?
+    @State private var documentError: String?
 
     var body: some View {
         ZStack {
@@ -55,6 +59,17 @@ struct ContentView: View {
             }
         }
         .navigationTitle("")
+        .alert("Document Error", isPresented: errorIsPresented) {
+            Button("OK", role: .cancel) {
+                documentError = nil
+            }
+        } message: {
+            Text(documentError ?? "")
+        }
+        .focusedSceneValue(\.openMetalBrushDocument, openDocument)
+        .focusedSceneValue(\.saveMetalBrushDocument, saveDocument)
+        .focusedSceneValue(\.saveMetalBrushDocumentAs, saveDocumentAs)
+        .focusedSceneValue(\.exportMetalBrushPNG, exportPNG)
     }
 
     private var colorBinding: Binding<Color> {
@@ -77,6 +92,87 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    private var errorIsPresented: Binding<Bool> {
+        Binding(
+            get: { documentError != nil },
+            set: { isPresented in
+                if !isPresented {
+                    documentError = nil
+                }
+            }
+        )
+    }
+
+    private func openDocument() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Metal Brush Document"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if let documentType = UTType(filenameExtension: "metalbrush") {
+            panel.allowedContentTypes = [documentType]
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try renderer.loadDocument(from: url)
+            documentURL = url
+        } catch {
+            documentError = error.localizedDescription
+        }
+    }
+
+    private func saveDocument() {
+        if let documentURL {
+            writeDocument(to: documentURL)
+        } else {
+            saveDocumentAs()
+        }
+    }
+
+    private func saveDocumentAs() {
+        let panel = NSSavePanel()
+        panel.title = "Save Metal Brush Document"
+        panel.nameFieldStringValue = "Untitled.metalbrush"
+        panel.canCreateDirectories = true
+        if let documentType = UTType(filenameExtension: "metalbrush") {
+            panel.allowedContentTypes = [documentType]
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let saveURL = url.pathExtension == "metalbrush"
+            ? url
+            : url.appendingPathExtension("metalbrush")
+        writeDocument(to: saveURL)
+        documentURL = saveURL
+    }
+
+    private func writeDocument(to url: URL) {
+        do {
+            try renderer.saveDocument(to: url)
+        } catch {
+            documentError = error.localizedDescription
+        }
+    }
+
+    private func exportPNG() {
+        let panel = NSSavePanel()
+        panel.title = "Export PNG"
+        panel.nameFieldStringValue = "Artwork.png"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.png]
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let exportURL = url.pathExtension == "png"
+            ? url
+            : url.appendingPathExtension("png")
+        do {
+            try renderer.exportFlattenedPNG(to: exportURL)
+        } catch {
+            documentError = error.localizedDescription
+        }
     }
 }
 

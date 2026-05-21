@@ -70,6 +70,7 @@ class BrushRenderer: NSObject, ObservableObject {
     private let maxDabs = 10000
     private var needsSnapshotSave = false
     private let maxLayers = 5
+    private let documentStore = CanvasDocumentStore()
 
     @Published private(set) var layerInfos: [CanvasLayerInfo] = []
     @Published var selectedLayerIndex: Int = 0
@@ -178,6 +179,18 @@ class BrushRenderer: NSObject, ObservableObject {
         )
         descriptor.usage = [.renderTarget, .shaderRead]
         descriptor.storageMode = .private
+        return device.makeTexture(descriptor: descriptor)
+    }
+
+    private func makeStagingTexture(width: Int, height: Int) -> MTLTexture? {
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = [.shaderRead, .shaderWrite]
+        descriptor.storageMode = .shared
         return device.makeTexture(descriptor: descriptor)
     }
 
@@ -487,6 +500,171 @@ class BrushRenderer: NSObject, ObservableObject {
         let renderEncoder = commandBuffer?.makeRenderCommandEncoder(descriptor: passDescriptor)
         renderEncoder?.endEncoding()
         commandBuffer?.commit()
+    }
+
+    // MARK: - Document IO
+    func saveDocument(to url: URL) throws {
+        let layerDocuments = layers.enumerated().map { index, layer in
+            CanvasDocumentLayer(
+                name: layer.name,
+                isVisible: layer.isVisible,
+                opacity: layer.opacity,
+                filename: String(format: "layer-%03d.png", index)
+            )
+        }
+        let manifest = CanvasDocumentManifest(
+            canvasWidth: Int(canvasSize.width),
+            canvasHeight: Int(canvasSize.height),
+            selectedLayerIndex: selectedLayerIndex,
+            layers: layerDocuments
+        )
+        let layerImages = try zip(layerDocuments, layers).map { documentLayer, layer in
+            let pixels = try readPixels(from: layer.texture)
+            let data = try documentStore.pngData(
+                fromBGRA: pixels,
+                width: layer.texture.width,
+                height: layer.texture.height
+            )
+            return (filename: documentLayer.filename, data: data)
+        }
+
+        try documentStore.saveDocument(manifest: manifest, layerImages: layerImages, to: url)
+    }
+
+    func loadDocument(from url: URL) throws {
+        let document = try documentStore.loadDocument(from: url)
+        guard document.manifest.canvasWidth == Int(canvasSize.width),
+              document.manifest.canvasHeight == Int(canvasSize.height),
+              !document.manifest.layers.isEmpty else {
+            throw CanvasDocumentError.unsupportedCanvasSize
+        }
+
+        var loadedLayers: [CanvasLayer] = []
+        for (documentLayer, bitmap) in document.layerImages {
+            let pixels = try documentStore.bgraPixels(
+                from: bitmap,
+                expectedWidth: Int(canvasSize.width),
+                expectedHeight: Int(canvasSize.height)
+            )
+            guard let texture = makeCanvasTexture() else {
+                throw CanvasDocumentError.invalidDocument
+            }
+            uploadPixels(pixels, to: texture)
+
+            let layer = CanvasLayer(
+                name: documentLayer.name,
+                texture: texture,
+                history: CanvasHistory(device: device, canvasTexture: texture, maxLevels: 20)
+            )
+            layer.isVisible = documentLayer.isVisible
+            layer.opacity = min(max(documentLayer.opacity, 0), 1)
+            layer.history.saveSnapshot(from: texture, using: commandQueue)
+            loadedLayers.append(layer)
+        }
+
+        layers = loadedLayers
+        selectedLayerIndex = min(max(document.manifest.selectedLayerIndex, 0), layers.count - 1)
+        newDabs.removeAll()
+        brushEngine.resetStroke()
+        refreshLayerInfos()
+        objectWillChange.send()
+    }
+
+    func exportFlattenedPNG(to url: URL) throws {
+        guard let texture = makeFlattenedCanvasTexture() else {
+            throw CanvasDocumentError.pngEncodingFailed
+        }
+        let pixels = try readPixels(from: texture)
+        let data = try documentStore.pngData(fromBGRA: pixels, width: texture.width, height: texture.height)
+        try data.write(to: url)
+    }
+
+    private func makeFlattenedCanvasTexture() -> MTLTexture? {
+        guard let texture = makeCanvasTexture() else { return nil }
+        let commandBuffer = commandQueue.makeCommandBuffer()!
+        let passDescriptor = MTLRenderPassDescriptor()
+        passDescriptor.colorAttachments[0].texture = texture
+        passDescriptor.colorAttachments[0].loadAction = .clear
+        passDescriptor.colorAttachments[0].storeAction = .store
+        passDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+
+        let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor)!
+        renderEncoder.setRenderPipelineState(displayPipelineState)
+        renderEncoder.setVertexBuffer(quadVertexBuffer, offset: 0, index: 0)
+        var displayUniforms = DisplayUniforms(scale: SIMD2<Float>(1, 1), translation: SIMD2<Float>(0, 0))
+        renderEncoder.setVertexBytes(&displayUniforms, length: MemoryLayout<DisplayUniforms>.stride, index: 1)
+        renderEncoder.setFragmentSamplerState(displaySamplerState, index: 0)
+
+        for layer in layers where layer.isVisible && layer.opacity > 0 {
+            var opacity = layer.opacity
+            renderEncoder.setFragmentBytes(&opacity, length: MemoryLayout<Float>.stride, index: 0)
+            renderEncoder.setFragmentTexture(layer.texture, index: 0)
+            renderEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+        }
+        renderEncoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        return texture
+    }
+
+    private func readPixels(from texture: MTLTexture) throws -> [UInt8] {
+        guard let stagingTexture = makeStagingTexture(width: texture.width, height: texture.height) else {
+            throw CanvasDocumentError.pngEncodingFailed
+        }
+        let commandBuffer = commandQueue.makeCommandBuffer()!
+        let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+        blitEncoder.copy(
+            from: texture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: texture.width, height: texture.height, depth: 1),
+            to: stagingTexture,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let bytesPerRow = texture.width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * texture.height)
+        stagingTexture.getBytes(
+            &pixels,
+            bytesPerRow: bytesPerRow,
+            from: MTLRegionMake2D(0, 0, texture.width, texture.height),
+            mipmapLevel: 0
+        )
+        return pixels
+    }
+
+    private func uploadPixels(_ pixels: [UInt8], to texture: MTLTexture) {
+        guard let stagingTexture = makeStagingTexture(width: texture.width, height: texture.height) else { return }
+        let bytesPerRow = texture.width * 4
+        stagingTexture.replace(
+            region: MTLRegionMake2D(0, 0, texture.width, texture.height),
+            mipmapLevel: 0,
+            withBytes: pixels,
+            bytesPerRow: bytesPerRow
+        )
+
+        let commandBuffer = commandQueue.makeCommandBuffer()!
+        let blitEncoder = commandBuffer.makeBlitCommandEncoder()!
+        blitEncoder.copy(
+            from: stagingTexture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: texture.width, height: texture.height, depth: 1),
+            to: texture,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blitEncoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
     }
 
     // MARK: - Stroke Lifecycle
